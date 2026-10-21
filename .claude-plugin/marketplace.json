@@ -1,0 +1,12 @@
+{
+  "name": "cc-practices",
+  "owner": { "name": "Glenn McDonald" },
+  "description": "Local marketplace for the cc-practices plugin.",
+  "plugins": [
+    {
+      "name": "cc-practices",
+      "source": "./",
+      "description": "Shared development practices: TDD skills, review agents, Conventional Commits, format and commit-guard hooks."
+    }
+  ]
+}
