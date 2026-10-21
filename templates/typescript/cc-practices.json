@@ -1,0 +1,13 @@
+{
+  "languages": ["typescript"],
+  "format": {
+    "extensions": [".ts", ".tsx", ".js", ".jsx", ".json"],
+    "command": ["bunx", "biome", "check", "--write", "{file}"]
+  },
+  "checks": {
+    "lint": "bun run lint",
+    "typecheck": "bun run typecheck",
+    "test": "bun run test"
+  },
+  "allowAgentCommits": false
+}

@@ -1,0 +1,14 @@
+{
+  "languages": ["python"],
+  "format": {
+    "extensions": [".py"],
+    "command": ["uv", "run", "ruff", "format", "{file}"]
+  },
+  "checks": {
+    "lint": "uv run ruff check .",
+    "format": "uv run ruff format --check .",
+    "typecheck": "uv run mypy",
+    "test": "uv run pytest"
+  },
+  "allowAgentCommits": false
+}
