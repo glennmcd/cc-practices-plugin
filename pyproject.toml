@@ -1,0 +1,33 @@
+[project]
+name = "cc-practices-plugin"
+version = "0.1.0"
+description = "Development tooling for the cc-practices Claude Code plugin (the hook script and its tests)"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[tool.uv]
+package = false
+default-groups = ["dev"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["hooks"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+strict = true
+files = ["hooks", "tests"]
+mypy_path = "hooks"
