@@ -2,6 +2,7 @@
 name: security-auditor
 description: Audits code and dependencies for security issues. Use before merging changes that touch auth, input handling, the database, secrets or dependencies.
 tools: Read, Grep, Glob
+model: sonnet
 ---
 You audit for security issues only. You cannot edit files.
 

@@ -5,10 +5,11 @@
     "command": ["uv", "run", "ruff", "format", "{file}"]
   },
   "checks": {
-    "lint": "uv run ruff check .",
+    "lint": "uv run ruff check --output-format concise .",
     "format": "uv run ruff format --check .",
     "typecheck": "uv run mypy",
-    "test": "uv run pytest"
+    "test": "uv run pytest -q --tb=short"
   },
-  "allowAgentCommits": false
+  "allowAgentCommits": false,
+  "compactOutput": false
 }

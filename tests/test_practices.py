@@ -2,6 +2,7 @@
 
 import io
 import json
+import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -262,3 +263,102 @@ def test_bad_stdin_does_not_block(tmp_path: Path) -> None:
         env={"CLAUDE_PROJECT_DIR": str(tmp_path)},
     )
     assert code == 0
+
+
+# --- compact-output ------------------------------------------------------------------------------
+
+
+class FakeRewriter:
+    def __init__(self, result: str | None) -> None:
+        self.calls: list[str] = []
+        self.result = result
+
+    def __call__(self, command: str) -> str | None:
+        self.calls.append(command)
+        return self.result
+
+
+def compact(
+    payload: Mapping[str, object], project: Path, rewriter: FakeRewriter
+) -> tuple[int, str]:
+    out = io.StringIO()
+    code = main(
+        ["compact-output"],
+        stdin=io.StringIO(json.dumps(payload)),
+        stdout=out,
+        stderr=io.StringIO(),
+        env={"CLAUDE_PROJECT_DIR": str(project)},
+        rewriter=rewriter,
+    )
+    return code, out.getvalue()
+
+
+def test_compact_output_is_off_by_default(tmp_path: Path) -> None:
+    rewriter = FakeRewriter("rtk git status")
+    assert compact(bash("git status"), tmp_path, rewriter) == (0, "")
+    assert rewriter.calls == []
+
+
+def test_compact_output_rewrites_and_asks(tmp_path: Path) -> None:
+    write_config(tmp_path, {"compactOutput": True})
+    payload = {"tool_name": "Bash", "tool_input": {"command": "git status", "timeout": 5000}}
+    code, out = compact(payload, tmp_path, FakeRewriter("rtk git status"))
+    assert code == 0
+    decision = json.loads(out)["hookSpecificOutput"]
+    assert decision["hookEventName"] == "PreToolUse"
+    # "ask" keeps the user's permission prompt; "allow" would skip it for the rewritten command.
+    assert decision["permissionDecision"] == "ask"
+    assert decision["updatedInput"] == {"command": "rtk git status", "timeout": 5000}
+
+
+@pytest.mark.parametrize("result", [None, "rtk git status"])
+def test_compact_output_leaves_command_alone_without_a_new_rewrite(
+    tmp_path: Path, result: str | None
+) -> None:
+    write_config(tmp_path, {"compactOutput": True})
+    assert compact(bash("rtk git status"), tmp_path, FakeRewriter(result)) == (0, "")
+
+
+def test_compact_output_ignores_empty_commands(tmp_path: Path) -> None:
+    write_config(tmp_path, {"compactOutput": True})
+    rewriter = FakeRewriter("rtk")
+    assert compact(bash("  "), tmp_path, rewriter) == (0, "")
+    assert rewriter.calls == []
+
+
+def test_rtk_rewrite_is_none_without_rtk(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    assert practices.rtk_rewrite("git status") is None
+
+
+@pytest.mark.parametrize(
+    ("returncode", "stdout", "expected"),
+    [
+        (0, "rtk git status\n", "rtk git status"),
+        (3, "rtk git status\n", "rtk git status"),
+        (1, "", None),
+        (2, "rtk git status\n", None),
+        (0, "", None),
+    ],
+)
+def test_rtk_rewrite_reads_exit_code_and_stdout(
+    monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, expected: str | None
+) -> None:
+    monkeypatch.setattr("shutil.which", lambda _name: "/bin/rtk")
+
+    def fake_run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert args == ["/bin/rtk", "rewrite", "git status"]
+        return subprocess.CompletedProcess(args, returncode, stdout, "[rtk] warning\n")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    assert practices.rtk_rewrite("git status") == expected
+
+
+def test_rtk_rewrite_is_none_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("shutil.which", lambda _name: "/bin/rtk")
+
+    def slow_run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(args, 10)
+
+    monkeypatch.setattr("subprocess.run", slow_run)
+    assert practices.rtk_rewrite("git status") is None

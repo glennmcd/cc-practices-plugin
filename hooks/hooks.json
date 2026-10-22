@@ -1,9 +1,9 @@
 {
-  "description": "cc-practices: shared rules at session start, format on edit, guard agent commits",
+  "description": "cc-practices: shared rules at session start, format on edit, guard agent commits, compact Bash output",
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|clear|compact",
+        "matcher": "startup|clear|compact",
         "hooks": [
           {
             "type": "command",
@@ -20,6 +20,16 @@
           {
             "type": "command",
             "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/practices.py\" guard-commit",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/practices.py\" compact-output",
             "timeout": 30
           }
         ]

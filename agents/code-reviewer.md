@@ -2,6 +2,7 @@
 name: code-reviewer
 description: Reviews changed code for correctness, readability and test coverage. Use after a feature or fix is complete, before committing.
 tools: Read, Grep, Glob
+model: sonnet
 ---
 You review code you did not write. You cannot edit files.
 

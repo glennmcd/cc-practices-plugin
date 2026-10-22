@@ -9,12 +9,12 @@ used locally and installed from a directory marketplace, not published.
 | Piece | What it does |
 | --- | --- |
 | `practices/common.md`, `python.md`, `typescript.md` | Shared rules, added to context at session start (common plus the project's languages) |
-| `agents/code-reviewer`, `agents/security-auditor` | Read-only review agents |
+| `agents/code-reviewer`, `agents/security-auditor` | Read-only review agents, pinned to Sonnet |
 | `skills/tdd-change` | Align, failing test, implement, verify, docs |
 | `skills/verify` | Runs the project's configured lint, typecheck and test commands |
 | `skills/commit-message` | Conventional Commit message, type chosen by effect on users |
 | `skills/adr` | Numbered decision record in `docs/decisions/` |
-| `hooks/` | Session-start rules, format on edit, `git commit` guard |
+| `hooks/` | Session-start rules, format on edit, `git commit` guard, optional `rtk` rewrite of Bash commands |
 | `templates/` | Per-language `cc-practices.json`, Python CI, Dependabot, pyproject tool settings, import-layering test, `SECURITY.md` |
 
 ## Install
@@ -38,20 +38,34 @@ Copy `templates/<language>/cc-practices.json` to the project's `.claude/cc-pract
 {
   "languages": ["python"],
   "format": { "extensions": [".py"], "command": ["uv", "run", "ruff", "format", "{file}"] },
-  "checks": { "lint": "uv run ruff check .", "typecheck": "uv run mypy", "test": "uv run pytest" },
-  "allowAgentCommits": false
+  "checks": {
+    "lint": "uv run ruff check --output-format concise .",
+    "typecheck": "uv run mypy",
+    "test": "uv run pytest -q --tb=short"
+  },
+  "allowAgentCommits": false,
+  "compactOutput": false
 }
 ```
 
-- `languages` picks the practice files loaded at session start.
+- `languages` picks the practice files loaded at session start (on startup, `/clear` and compaction; a
+  resumed session already has them).
 - `format.command` is an argument list (no shell); `{file}` is the edited file. It runs only on files inside the
   project with a listed extension. A missing formatter is skipped quietly; a failure is reported to Claude without
   blocking the edit.
-- `checks` is read by the `verify` skill.
+- `checks` is read by the `verify` skill. Use quiet, failures-only flags: the skill reruns a single failing
+  check in detail when it needs more.
 - `allowAgentCommits` defaults to `false`: the `PreToolUse` hook blocks `git commit` (Bash or PowerShell, with or
   without `-C`/`-c` options) and asks for a suggested message instead.
+- `compactOutput` defaults to `false`. When `true` and [rtk](https://github.com/rtk-ai/rtk) is on `PATH`, a
+  `PreToolUse` hook on the Bash tool replaces the command with `rtk rewrite`'s compact equivalent (`git status`
+  becomes `rtk git status`), which cuts the tokens command output costs. The hook answers `ask`, not `allow`,
+  so you confirm each rewritten command: an `allow` would skip the prompt the original command would have had.
+  Commands rtk has no rewrite for, and every command when rtk is missing, run unchanged. The PowerShell tool
+  is not rewritten.
 
-Without the file, the plugin loads only the common practices, formats nothing and blocks agent commits.
+Without the file, the plugin loads only the common practices, formats nothing, rewrites nothing and blocks
+agent commits.
 
 ## Develop
 

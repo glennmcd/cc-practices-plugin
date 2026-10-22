@@ -7,9 +7,11 @@
   session-start  prints practices/common.md plus one file per configured language into context
   format         after Edit/Write, runs the project's formatter on the edited file
   guard-commit   before Bash/PowerShell, blocks `git commit` unless the project allows agent commits
+  compact-output before Bash, rewrites the command through `rtk rewrite` when the project opts in
 
 Each project configures it in `.claude/cc-practices.json`; without that file every mode does the
-safe minimum (common practices only, no formatting, commits blocked). Standard library only.
+safe minimum (common practices only, no formatting, commits blocked, no rewriting). Standard
+library only.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable, Mapping
@@ -27,6 +30,7 @@ from typing import TextIO
 CONFIG_PATH = Path(".claude") / "cc-practices.json"
 PRACTICES_DIR = Path(__file__).resolve().parent.parent / "practices"
 FORMAT_TIMEOUT_SECONDS = 60
+REWRITE_TIMEOUT_SECONDS = 10
 
 # `git`, any global options (`-C dir`, `-c key=value`, `--no-pager`), then `commit`/`commit-tree`.
 GIT_COMMIT = re.compile(
@@ -37,6 +41,7 @@ GIT_COMMIT = re.compile(
 LANGUAGE_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 
 Runner = Callable[[list[str], Path], tuple[int, str]]
+Rewriter = Callable[[str], str | None]
 
 
 @dataclass(frozen=True)
@@ -45,6 +50,7 @@ class Config:
     format_extensions: list[str] = field(default_factory=list)
     format_command: list[str] = field(default_factory=list)
     allow_commits: bool = False
+    compact_output: bool = False
 
 
 def _str_list(value: object) -> list[str]:
@@ -71,6 +77,7 @@ def load_config(project: Path) -> Config:
         format_extensions=_str_list(fmt.get("extensions")),
         format_command=_str_list(fmt.get("command")),
         allow_commits=data.get("allowAgentCommits") is True,
+        compact_output=data.get("compactOutput") is True,
     )
 
 
@@ -106,6 +113,29 @@ def run_command(args: list[str], cwd: Path) -> tuple[int, str]:
     return result.returncode, (result.stdout + result.stderr).strip()
 
 
+def rtk_rewrite(command: str) -> str | None:
+    """The command `rtk rewrite` proposes, or None when rtk is missing or has no equivalent.
+
+    rtk exits 0 (or 3, when it wants the user asked) with the rewrite on stdout, and 1 when the
+    command has no compact form. Its diagnostics go to stderr and are ignored.
+    """
+    rtk = shutil.which("rtk")
+    if rtk is None:
+        return None
+    try:
+        result = subprocess.run(
+            [rtk, "rewrite", command],
+            capture_output=True,
+            text=True,
+            timeout=REWRITE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    rewritten = result.stdout.strip()
+    return rewritten if result.returncode in {0, 3} and rewritten else None
+
+
 def _session_start(config: Config, stdout: TextIO) -> int:
     stdout.write(practices_text(PRACTICES_DIR, config.languages) + "\n")
     return 0
@@ -121,6 +151,28 @@ def _guard_commit(config: Config, tool_input: Mapping[str, object], stderr: Text
         f"in {CONFIG_PATH.as_posix()}.\n"
     )
     return 2
+
+
+def _compact_output(
+    config: Config, tool_input: Mapping[str, object], stdout: TextIO, rewriter: Rewriter
+) -> int:
+    command = tool_input.get("command")
+    if not config.compact_output or not isinstance(command, str) or not command.strip():
+        return 0
+    rewritten = rewriter(command)
+    if rewritten is None or rewritten == command.strip():
+        return 0
+    # "ask", not "allow": an "allow" would skip the prompt the original command would have had.
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+            "permissionDecisionReason": "cc-practices: compact output via rtk",
+            "updatedInput": {**tool_input, "command": rewritten},
+        }
+    }
+    stdout.write(json.dumps(output) + "\n")
+    return 0
 
 
 def _format(
@@ -155,9 +207,10 @@ def main(
     stderr: TextIO = sys.stderr,
     env: Mapping[str, str] = os.environ,
     runner: Runner | None = None,
+    rewriter: Rewriter | None = None,
 ) -> int:
     mode = argv[0] if argv else ""
-    if mode not in {"session-start", "format", "guard-commit"}:
+    if mode not in {"session-start", "format", "guard-commit", "compact-output"}:
         stderr.write(f"cc-practices: unknown mode {mode!r}\n")
         return 1
     try:
@@ -175,6 +228,8 @@ def main(
         return _session_start(config, stdout)
     if mode == "guard-commit":
         return _guard_commit(config, tool_input, stderr)
+    if mode == "compact-output":
+        return _compact_output(config, tool_input, stdout, rewriter or rtk_rewrite)
     return _format(config, project, tool_input, stderr, runner or run_command)
 
 
