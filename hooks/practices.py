@@ -88,10 +88,16 @@ def practices_text(folder: Path, languages: list[str]) -> str:
     return "\n\n".join(parts)
 
 
+def formatter_env(env: Mapping[str, str]) -> dict[str, str]:
+    """The hook's environment minus the virtualenv `uv run --script` created for this script."""
+    return {key: value for key, value in env.items() if key != "VIRTUAL_ENV"}
+
+
 def run_command(args: list[str], cwd: Path) -> tuple[int, str]:
     result = subprocess.run(
         args,
         cwd=cwd,
+        env=formatter_env(os.environ),
         capture_output=True,
         text=True,
         timeout=FORMAT_TIMEOUT_SECONDS,

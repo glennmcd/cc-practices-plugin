@@ -119,6 +119,17 @@ def test_shipped_practices_files_exist() -> None:
         assert (folder / name).is_file(), name
 
 
+# --- formatter environment -----------------------------------------------------------------------
+
+
+def test_formatter_env_drops_the_hook_script_venv() -> None:
+    # `uv run --script` sets VIRTUAL_ENV for the hook; a project's own `uv run` must not inherit it.
+    env = practices.formatter_env({"VIRTUAL_ENV": "/cache/practices", "PATH": "/bin", "HOME": "/h"})
+    assert "VIRTUAL_ENV" not in env
+    assert env["PATH"] == "/bin"
+    assert env["HOME"] == "/h"
+
+
 # --- main ----------------------------------------------------------------------------------------
 
 
