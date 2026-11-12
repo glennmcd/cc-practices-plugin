@@ -116,7 +116,7 @@ def test_practices_text_skips_unknown_language(tmp_path: Path) -> None:
 
 def test_shipped_practices_files_exist() -> None:
     folder = Path(practices.__file__).resolve().parent.parent / "practices"
-    for name in ["common.md", "python.md", "typescript.md"]:
+    for name in ["common.md", "python.md", "typescript.md", "unattended.md"]:
         assert (folder / name).is_file(), name
 
 
@@ -134,8 +134,15 @@ def test_formatter_env_drops_the_hook_script_venv() -> None:
 # --- main ----------------------------------------------------------------------------------------
 
 
+UNATTENDED = {"CC_PRACTICES_UNATTENDED": "1"}
+
+
 def run(
-    mode: str, payload: Mapping[str, object], project: Path, runner: practices.Runner | None = None
+    mode: str,
+    payload: Mapping[str, object],
+    project: Path,
+    runner: practices.Runner | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> tuple[int, str, str]:
     out, err = io.StringIO(), io.StringIO()
     code = main(
@@ -143,7 +150,7 @@ def run(
         stdin=io.StringIO(json.dumps(payload)),
         stdout=out,
         stderr=err,
-        env={"CLAUDE_PROJECT_DIR": str(project)},
+        env={"CLAUDE_PROJECT_DIR": str(project), **(env or {})},
         runner=runner,
     )
     return code, out.getvalue(), err.getvalue()
@@ -178,6 +185,60 @@ def test_session_start_prints_practices(tmp_path: Path) -> None:
     code, out, _ = run("session-start", {"hook_event_name": "SessionStart"}, tmp_path)
     assert code == 0
     assert "Python" in out
+    assert "Unattended" not in out
+
+
+# --- unattended sessions -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("1", True), ("true", True), ("YES", True), (" 1 ", True), ("0", False), ("", False)],
+)
+def test_is_unattended_reads_the_environment(value: str, expected: bool) -> None:
+    assert practices.is_unattended({"CC_PRACTICES_UNATTENDED": value}) is expected
+
+
+def test_is_unattended_is_false_when_unset() -> None:
+    assert practices.is_unattended({}) is False
+
+
+def test_guard_allows_commit_when_unattended(tmp_path: Path) -> None:
+    # A sub-agent past fleet-kit's context ceiling may run only git/gh and is told to commit.
+    payload = {"agent_id": "a1", **bash("git add -A && git commit -m 'feat: x' && git push")}
+    write_config(tmp_path, {"allowAgentCommits": False})
+    assert run("guard-commit", payload, tmp_path, env=UNATTENDED)[0] == 0
+
+
+def test_session_start_adds_unattended_rules(tmp_path: Path) -> None:
+    write_config(tmp_path, {"languages": ["python"]})
+    code, out, _ = run("session-start", {}, tmp_path, env=UNATTENDED)
+    assert code == 0
+    assert "Python" in out
+    assert "Done when" in out
+
+
+def test_unattended_rules_cannot_be_loaded_as_a_language(tmp_path: Path) -> None:
+    (tmp_path / "common.md").write_text("COMMON", encoding="utf-8")
+    (tmp_path / "unattended.md").write_text("UNATTENDED", encoding="utf-8")
+    assert practices_text(tmp_path, ["unattended"]) == "COMMON"
+    assert practices_text(tmp_path, [], unattended=True) == "COMMON\n\nUNATTENDED"
+
+
+def test_compact_output_is_off_when_unattended(tmp_path: Path) -> None:
+    write_config(tmp_path, {"compactOutput": True})
+    out = io.StringIO()
+    rewriter = FakeRewriter("rtk git status")
+    code = main(
+        ["compact-output"],
+        stdin=io.StringIO(json.dumps(bash("git status"))),
+        stdout=out,
+        stderr=io.StringIO(),
+        env={"CLAUDE_PROJECT_DIR": str(tmp_path), **UNATTENDED},
+        rewriter=rewriter,
+    )
+    assert (code, out.getvalue()) == (0, "")
+    assert rewriter.calls == []
 
 
 class FakeRunner:

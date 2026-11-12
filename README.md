@@ -9,6 +9,7 @@ used locally and installed from a directory marketplace, not published.
 | Piece | What it does |
 | --- | --- |
 | `practices/common.md`, `python.md`, `typescript.md` | Shared rules, added to context at session start (common plus the project's languages) |
+| `practices/unattended.md` | Rules that replace waiting for a person, added only in [unattended sessions](#unattended-sessions) |
 | `agents/code-reviewer`, `agents/security-auditor` | Read-only review agents, pinned to Sonnet |
 | `skills/tdd-change` | Align, failing test, implement, verify, docs |
 | `skills/verify` | Runs the project's configured lint, typecheck and test commands |
@@ -66,6 +67,19 @@ Copy `templates/<language>/cc-practices.json` to the project's `.claude/cc-pract
 
 Without the file, the plugin loads only the common practices, formats nothing, rewrites nothing and blocks
 agent commits.
+
+## Unattended sessions
+
+Set `CC_PRACTICES_UNATTENDED=1` in the environment of sessions no one is watching, such as fleet agents on a
+VM. It is an environment variable rather than a config key because the config is committed: a laptop checkout
+and an agent clone of the same repository share it. Export it where the agents are launched so the hook
+processes inherit it. When it is set:
+
+- `practices/unattended.md` is added at session start: an issue with a *Done when* list counts as approval,
+  and anything that needs the owner becomes a handoff comment on the issue or PR, after which the agent ends.
+- `git commit` is allowed whatever `allowAgentCommits` says. Without this, a sub-agent that
+  fleet-kit's context ceiling tells to commit and hand off could do neither.
+- `compactOutput` is ignored, because its `ask` decision would wait for a person.
 
 ## Develop
 

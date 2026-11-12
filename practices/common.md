@@ -7,8 +7,8 @@ These apply to every project that enables the plugin. The project's own CLAUDE.m
 - Write the failing test first where practical, and confirm it fails for the right reason. Every new function, route or rule ships with its tests in the same change, including failure paths.
 - Before moving on, run the project's lint, typecheck and test commands (the `verify` skill reads them from `.claude/cc-practices.json`).
 - Tests never touch the network or a hosted service: use fakes behind the project's adapter interfaces, HTTP mocks, or in-memory databases.
-- Ask before adding a dependency the project brief does not name.
-- Keep command output small: run quiet or failures-only variants first and widen only when they don't explain the problem. With `compactOutput` on, Bash commands are rewritten through `rtk`; use `rtk recall` for anything it elided, and the raw command when the exact output is what you are reporting.
+- Ask before adding a dependency the project brief does not name; in an unattended session, hand off instead.
+- Keep command output small: run quiet or failures-only variants first and widen only when they don't explain the problem. When `compactOutput` or rtk's own hook rewrites commands through `rtk`, treat the compact output as the result, including when relaying it to the user. Use `rtk recall` for anything it elided, and rerun with `rtk proxy <cmd>` only when the user asks for full output or the compact result is unusable.
 
 ## Code and secrets
 
@@ -22,7 +22,7 @@ These apply to every project that enables the plugin. The project's own CLAUDE.m
 
 - Commit messages and PR titles use Conventional Commits. Pick the type by what changes for users of the deployed thing, not by file kind: `fix:` is a patch, `feat:` a minor, and `docs:`, `chore:`, `ci:`, `test:`, `refactor:`, `build:`, `style:` do not release. A docs-only change is `docs:` however large. Use the `commit-message` skill.
 - PRs are squash-merged with the PR title as the commit message.
-- Whether the agent may run `git commit` is set per project (`allowAgentCommits`); when it may not, suggest the message and leave the commit to the user.
+- Whether the agent may run `git commit` is set per project (`allowAgentCommits`) and is always allowed in an unattended session; when it may not, suggest the message and leave the commit to the user.
 - Build plans go in `docs/plans/`; architecture decisions go in `docs/decisions/` as numbered ADRs (the `adr` skill).
 - Keep one CLAUDE.md at the root as the single source of agent instructions; turn off tools that generate extra agent files.
 - `.claude/settings.local.json` is personal and git-ignored; shared settings go in `.claude/settings.json`.

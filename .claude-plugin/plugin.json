@@ -1,6 +1,6 @@
 {
   "name": "cc-practices",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shared development practices for Glenn's projects: TDD workflow skills, review agents, Conventional Commits, and per-project format and commit-guard hooks for Python and TypeScript.",
   "author": { "name": "Glenn McDonald" },
   "license": "MIT",

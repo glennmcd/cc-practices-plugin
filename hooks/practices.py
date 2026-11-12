@@ -12,6 +12,11 @@
 Each project configures it in `.claude/cc-practices.json`; without that file every mode does the
 safe minimum (common practices only, no formatting, commits blocked, no rewriting). Standard
 library only.
+
+`CC_PRACTICES_UNATTENDED=1` in the environment marks a session no one is watching (a fleet agent
+on a VM). It is set per machine, not per repo, because a laptop checkout and an agent clone share
+the committed config. Unattended, session-start adds practices/unattended.md, guard-commit allows
+commits, and compact-output stays off, since its `ask` decision would wait for a person.
 """
 
 from __future__ import annotations
@@ -23,11 +28,13 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TextIO
 
 CONFIG_PATH = Path(".claude") / "cc-practices.json"
+UNATTENDED_ENV = "CC_PRACTICES_UNATTENDED"
+UNATTENDED_PRACTICES = "unattended"
 PRACTICES_DIR = Path(__file__).resolve().parent.parent / "practices"
 FORMAT_TIMEOUT_SECONDS = 60
 REWRITE_TIMEOUT_SECONDS = 10
@@ -51,6 +58,11 @@ class Config:
     format_command: list[str] = field(default_factory=list)
     allow_commits: bool = False
     compact_output: bool = False
+    unattended: bool = False
+
+
+def is_unattended(env: Mapping[str, str]) -> bool:
+    return env.get(UNATTENDED_ENV, "").strip().lower() in {"1", "true", "yes"}
 
 
 def _str_list(value: object) -> list[str]:
@@ -85,8 +97,13 @@ def is_git_commit(command: str) -> bool:
     return GIT_COMMIT.search(command) is not None
 
 
-def practices_text(folder: Path, languages: list[str]) -> str:
-    names = ["common", *(lang for lang in languages if LANGUAGE_NAME.match(lang))]
+def practices_text(folder: Path, languages: list[str], unattended: bool = False) -> str:
+    names = [
+        "common",
+        *(lang for lang in languages if LANGUAGE_NAME.match(lang) and lang != UNATTENDED_PRACTICES),
+    ]
+    if unattended:
+        names.append(UNATTENDED_PRACTICES)
     parts = [
         (folder / f"{name}.md").read_text(encoding="utf-8").strip()
         for name in names
@@ -137,13 +154,15 @@ def rtk_rewrite(command: str) -> str | None:
 
 
 def _session_start(config: Config, stdout: TextIO) -> int:
-    stdout.write(practices_text(PRACTICES_DIR, config.languages) + "\n")
+    stdout.write(practices_text(PRACTICES_DIR, config.languages, config.unattended) + "\n")
     return 0
 
 
 def _guard_commit(config: Config, tool_input: Mapping[str, object], stderr: TextIO) -> int:
     command = tool_input.get("command")
-    if config.allow_commits or not isinstance(command, str) or not is_git_commit(command):
+    if config.allow_commits or config.unattended:
+        return 0
+    if not isinstance(command, str) or not is_git_commit(command):
         return 0
     stderr.write(
         "cc-practices: agent commits are blocked in this project. Leave the commit to the user "
@@ -157,7 +176,9 @@ def _compact_output(
     config: Config, tool_input: Mapping[str, object], stdout: TextIO, rewriter: Rewriter
 ) -> int:
     command = tool_input.get("command")
-    if not config.compact_output or not isinstance(command, str) or not command.strip():
+    if config.unattended or not config.compact_output:
+        return 0
+    if not isinstance(command, str) or not command.strip():
         return 0
     rewritten = rewriter(command)
     if rewritten is None or rewritten == command.strip():
@@ -220,7 +241,7 @@ def main(
     if not isinstance(payload, dict):
         payload = {}
     project = Path(env.get("CLAUDE_PROJECT_DIR") or str(payload.get("cwd") or os.getcwd()))
-    config = load_config(project)
+    config = replace(load_config(project), unattended=is_unattended(env))
     tool_input = payload.get("tool_input")
     tool_input = tool_input if isinstance(tool_input, dict) else {}
 

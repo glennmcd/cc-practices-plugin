@@ -11,7 +11,7 @@ Change to make: $ARGUMENTS
 Don't skip steps; run each command before moving on.
 
 ## 0. Align first
-State what will change, the public shape (function signature, endpoint and response, CLI flags), what will not be touched, the failure cases, and how you will validate it. For work from a brief or issue, wait for approval before editing product code. Find the closest existing example in the repo and name it as the model to follow.
+State what will change, the public shape (function signature, endpoint and response, CLI flags), what will not be touched, the failure cases, and how you will validate it. For work from a brief or issue, wait for approval before editing product code; in an unattended session, an issue with a *Done when* list is the approval, and without one you hand off instead (see the unattended practices). Find the closest existing example in the repo and name it as the model to follow.
 
 ## 1. Schema or types first
 If the change crosses a boundary (API request/response, model output, config), add or extend the validation model (Pydantic or Zod) and give it parse and reject tests.
@@ -30,4 +30,4 @@ Put logic in a plain module, not in the route, DAG or handler; the framework lay
 Run the `verify` skill (the project's lint, typecheck and test commands from `.claude/cc-practices.json`). Fix what fails; don't weaken a check to make it pass.
 
 ## 5. Generated files and docs
-Regenerate any committed generated file the change affects (OpenAPI spec, client) in the same change. Update the project's CLAUDE.md or docs where the change alters a command, route or rule. Then suggest a Conventional Commit message (the `commit-message` skill); commit only if the project sets `allowAgentCommits`.
+Regenerate any committed generated file the change affects (OpenAPI spec, client) in the same change. Update the project's CLAUDE.md or docs where the change alters a command, route or rule. Then suggest a Conventional Commit message (the `commit-message` skill); commit only if the project sets `allowAgentCommits` or the session is unattended.
