@@ -8,7 +8,7 @@ used locally and installed from a directory marketplace, not published.
 
 | Piece | What it does |
 | --- | --- |
-| `practices/common.md`, `python.md`, `typescript.md` | Shared rules, added to context at session start (common plus the project's languages) |
+| `practices/common/`, `practices/languages/` | Rules by topic; the `core` ones are added at session start (see [Rules](#rules)) |
 | `practices/unattended.md` | Rules that replace waiting for a person, added only in [unattended sessions](#unattended-sessions) |
 | `agents/code-reviewer`, `agents/security-auditor` | Read-only review agents, pinned to Sonnet |
 | `skills/tdd-change` | Align, failing test, implement, verify, docs |
@@ -48,8 +48,8 @@ Copy `templates/<language>/cc-practices.json` to the project's `.claude/cc-pract
 }
 ```
 
-- `languages` picks the practice files loaded at session start (on startup, `/clear` and compaction; a
-  resumed session already has them).
+- `languages` picks the language files in `practices/languages/` whose core rules are loaded at session
+  start (on startup, `/clear` and compaction; a resumed session already has them).
 - `format.command` is an argument list (no shell); `{file}` is the edited file. It runs only on files inside the
   project with a listed extension. A missing formatter is skipped quietly; a failure is reported to Claude without
   blocking the edit.
@@ -58,6 +58,31 @@ Copy `templates/<language>/cc-practices.json` to the project's `.claude/cc-pract
 - `allowAgentCommits` defaults to `false`: the `PreToolUse` hook blocks `git commit` (Bash or PowerShell, with or
   without `-C`/`-c` options) and asks for a suggested message instead.
 Without the file, the plugin loads only the common practices, formats nothing and blocks agent commits.
+
+## Rules
+
+Every session pays for the text loaded at its start on every model call, so that text holds only the core
+rules and points to the rest. Each rule is one bullet in one topic file, ending in `{class; source}`:
+
+```markdown
+- Secrets come from the environment or a secret store, never from code, committed config or logs. {core; initial}
+```
+
+| Class | How the rule reaches the agent |
+| --- | --- |
+| `core` | Printed at session start, without the marker |
+| `topic` | The agent reads the topic file when its task touches that topic; session start lists the files |
+| `gate: <name>` | Enforced by the named check, whose failure message names the rule |
+| `review` | Checked in review |
+
+The source is the incident behind the rule, as `#12` or `owner/repo#12`; rules from before incidents were
+tracked say `initial`. Move a rule to a gate when it can be checked, and out of `core` when it is rarely
+needed. Tests enforce the layer:
+
+- every bullet in `practices/` has a valid class and source;
+- the session-start text stays under 3,072 bytes in its largest case (common, one language, unattended), a
+  cap that is only ever lowered;
+- no sentence of 20 or more words appears twice across the practice files, skills and agents.
 
 ## Compact command output with rtk
 
@@ -86,7 +111,7 @@ VM. It is an environment variable rather than a config key because the config is
 and an agent clone of the same repository share it. Export it where the agents are launched so the hook
 processes inherit it. When it is set:
 
-- `practices/unattended.md` is added at session start: an issue with a *Done when* list counts as approval,
+- The rules in `practices/unattended.md` are added at session start: an issue with a *Done when* list counts as approval,
   and anything that needs the owner becomes a handoff comment on the issue or PR, after which the agent ends.
 - `git commit` is allowed whatever `allowAgentCommits` says. Without this, a sub-agent that
   fleet-kit's context ceiling tells to commit and hand off could do neither.

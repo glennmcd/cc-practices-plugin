@@ -3,7 +3,7 @@
 What is left for cc-practices from the fleet-kit roadmap (Marquardt's two articles, rebuilt round by
 round). The split: cc-practices holds the general practices (rules, skills, reviewer, commit guard,
 templates); fleet-kit holds what only a fleet needs (token hooks, measurement, CI gates, control plane).
-Its plan is `fleet-kit/docs/PLAN.md`.
+Its plan is `fleet-kit/docs/plans/PLAN.md`.
 
 Done so far: unattended mode (`CC_PRACTICES_UNATTENDED`, 0.2.0) and command compaction left to rtk's own
 hook (0.3.0).
@@ -12,17 +12,24 @@ hook (0.3.0).
 
 The always-loaded text should be small and every rule should say why it exists.
 
-- Cap the always-loaded practices at about 2 KB (`common.md` is about 3.0 KB, plus a language file and
-  `unattended.md`). Move detail into topic files the agent reads on demand.
-- Topic files cite the incident that caused each rule (issue or PR number).
-- Rule delivery classes: mark each rule as always loaded, read on demand, or enforced by a hook or gate.
-  A rule that can be checked moves to the last class (see 4).
-- Code maps: a short per-project file that tells the agent where things are, so it reads less.
-- Handoff template: the 30-line comment `unattended.md` asks for, as a template file.
-- Remove sentences that repeat between `common.md`, the language files and `RTK.md`.
+First cut done in 0.4.0: topic files in `practices/common/` and `practices/languages/`, each rule
+marked `{class; source}` (`core`, `topic`, `review`, `gate: <name>`), session start built from the core
+rules, tests for the markers, a 3,072-byte cap on the largest case (now about 2.6 KB) and no repeated
+sentences. Every rule's source is `initial` so far.
 
-*Done when*: a test fails if the session-start text exceeds the byte cap; every rule names its class;
-the handoff template exists and `unattended.md` points to it.
+Left for a second cut:
+
+- Lower the cap toward 2 KB, by moving rules to gates (see 4) or out of `core`.
+- Triggered pointers: after an Edit or Write on matching paths (`tests/**`, `.github/workflows/**`,
+  `pyproject.toml`), tell the agent once per session to read that topic file. Adds a `triggered` class.
+  Check first that a PostToolUse hook can add context for the agent.
+- Code maps: `templates/python/code_map.py` writes `docs/CODE_MAP.md` (one line per module: path,
+  docstring summary, public names), with `--check` as a CI step.
+- Handoff template: the 30-line comment `unattended.md` asks for, as `templates/handoff.md`.
+- Replace `initial` sources with incident numbers as incidents happen.
+
+*Done when*: the cap test is at 2,048 bytes or less; the handoff template exists and `unattended.md`
+points to it; the Python CI template checks the code map.
 
 ## 2. Tests from recorded responses
 

@@ -2,6 +2,7 @@
 
 import io
 import json
+import re
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -98,25 +99,121 @@ def test_wrongly_typed_fields_are_ignored(tmp_path: Path) -> None:
 # --- practices_text ------------------------------------------------------------------------------
 
 
-def test_practices_text_has_common_and_selected_languages(tmp_path: Path) -> None:
-    (tmp_path / "common.md").write_text("COMMON", encoding="utf-8")
-    (tmp_path / "python.md").write_text("PYTHON", encoding="utf-8")
-    (tmp_path / "typescript.md").write_text("TYPESCRIPT", encoding="utf-8")
-    text = practices_text(tmp_path, ["python"])
-    assert "COMMON" in text
-    assert "PYTHON" in text
-    assert "TYPESCRIPT" not in text
+PLUGIN_ROOT = Path(practices.__file__).resolve().parent.parent
+SHIPPED = PLUGIN_ROOT / "practices"
+# The session-start text in its largest case (common + one language + unattended) stays under
+# this. Lower it as rules move to topic files or gates; never raise it. Roadmap target: about 2 KB.
+SESSION_START_CAP_BYTES = 3_072
+# Room for the plugin folder path the header prints, which differs per machine.
+SHOWN_FOLDER = "x" * 100
 
 
-def test_practices_text_skips_unknown_language(tmp_path: Path) -> None:
-    (tmp_path / "common.md").write_text("COMMON", encoding="utf-8")
-    assert practices_text(tmp_path, ["cobol", "../secret"]) == "COMMON"
+def rule(text: str, cls: str = "core") -> str:
+    return f"- {text} {{{cls}; initial}}"
 
 
-def test_shipped_practices_files_exist() -> None:
-    folder = Path(practices.__file__).resolve().parent.parent / "practices"
-    for name in ["common.md", "python.md", "typescript.md", "unattended.md"]:
-        assert (folder / name).is_file(), name
+def make_practices(folder: Path) -> Path:
+    files = {
+        "common/testing.md": ["# Testing", rule("CORE ONE."), rule("TOPIC ONE.", "topic")],
+        "common/docs.md": ["# Docs", rule("TOPIC TWO.", "topic")],
+        "languages/python.md": ["# Python", rule("PYTHON CORE.")],
+        "languages/typescript.md": ["# TypeScript", rule("TYPESCRIPT CORE.")],
+        "unattended.md": ["# Unattended", rule("UNATTENDED CORE.")],
+    }
+    for name, lines in files.items():
+        (folder / name).parent.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return folder
+
+
+def test_practices_text_prints_core_rules_without_markers(tmp_path: Path) -> None:
+    text = practices_text(make_practices(tmp_path), ["python"], shown_folder="PLUGIN")
+    assert "## Testing\n- CORE ONE." in text
+    assert "PYTHON CORE." in text
+    assert "TOPIC ONE." not in text and "## Docs" not in text
+    assert "{core" not in text
+    assert "under `PLUGIN`: common/docs.md, common/testing.md, languages/python.md." in text
+
+
+def test_practices_text_skips_other_and_unknown_languages(tmp_path: Path) -> None:
+    text = practices_text(make_practices(tmp_path), ["cobol", "../secret", "unattended"])
+    assert "TYPESCRIPT" not in text and "PYTHON" not in text and "UNATTENDED" not in text
+
+
+def test_unattended_rules_load_only_when_unattended(tmp_path: Path) -> None:
+    folder = make_practices(tmp_path)
+    assert "UNATTENDED CORE." not in practices_text(folder, [])
+    text = practices_text(folder, [], unattended=True)
+    assert text.endswith("## Unattended\n- UNATTENDED CORE.")
+    assert "unattended.md" not in text.split("\n\n")[1]
+
+
+def test_read_topic_reports_rules_without_a_marker(tmp_path: Path) -> None:
+    path = tmp_path / "t.md"
+    lines = ["# T", rule("Good."), "- No marker.", "- Bad class. {often; initial}", "Prose."]
+    path.write_text("\n".join(lines), encoding="utf-8")
+    topic = practices.read_topic(path)
+    assert [r.text for r in topic.rules] == ["Good."]
+    assert [p.split(": ", 1)[0] for p in topic.problems] == ["t.md:3", "t.md:4", "t.md:5"]
+
+
+@pytest.mark.parametrize("source", ["initial", "#12", "owner/repo#3"])
+def test_rule_sources_are_initial_or_an_issue(source: str) -> None:
+    assert practices.RULE.match(f"- Text. {{gate: ruff S; {source}}}")
+
+
+# --- shipped practice files ----------------------------------------------------------------------
+
+
+def shipped_topics() -> list[Path]:
+    return sorted(SHIPPED.rglob("*.md"))
+
+
+def test_every_shipped_rule_has_a_class_and_a_source() -> None:
+    topics = [practices.read_topic(path) for path in shipped_topics()]
+    assert [p for t in topics for p in t.problems] == []
+    assert all(t.rules for t in topics)
+
+
+def test_session_start_text_stays_under_the_cap() -> None:
+    languages = sorted(path.stem for path in (SHIPPED / "languages").glob("*.md"))
+    sizes = {
+        (lang, unattended): len(
+            practices_text(SHIPPED, [lang], unattended, SHOWN_FOLDER).encode("utf-8")
+        )
+        for lang in languages
+        for unattended in (False, True)
+    }
+    print(sizes)
+    assert max(sizes.values()) <= SESSION_START_CAP_BYTES, sizes
+
+
+def sentences(path: Path) -> list[str]:
+    text = re.sub(r"\{[^{}]*;[^{}]*\}", "", path.read_text(encoding="utf-8"))
+    text = re.sub(r"(?s)^---.*?---", "", text)
+    found = []
+    for part in re.split(r"(?<=[.!?])\s+|\n", text):
+        words = re.findall(r"[a-z0-9`'-]+", part.lower())
+        if len(words) >= 20:
+            found.append(" ".join(words))
+    return found
+
+
+def test_no_sentence_is_written_twice() -> None:
+    # Each explanation lives in one place; a repeat costs tokens and the copies drift apart.
+    files = [
+        *shipped_topics(),
+        *PLUGIN_ROOT.glob("skills/*/SKILL.md"),
+        *PLUGIN_ROOT.glob("agents/*.md"),
+    ]
+    seen: dict[str, Path] = {}
+    repeats = []
+    for path in files:
+        for sentence in sentences(path):
+            if sentence in seen:
+                repeats.append(f"{path.name} repeats {seen[sentence].name}: {sentence[:60]}")
+            seen.setdefault(sentence, path)
+    assert repeats == []
 
 
 # --- formatter environment -----------------------------------------------------------------------
@@ -217,13 +314,6 @@ def test_session_start_adds_unattended_rules(tmp_path: Path) -> None:
     assert code == 0
     assert "Python" in out
     assert "Done when" in out
-
-
-def test_unattended_rules_cannot_be_loaded_as_a_language(tmp_path: Path) -> None:
-    (tmp_path / "common.md").write_text("COMMON", encoding="utf-8")
-    (tmp_path / "unattended.md").write_text("UNATTENDED", encoding="utf-8")
-    assert practices_text(tmp_path, ["unattended"]) == "COMMON"
-    assert practices_text(tmp_path, [], unattended=True) == "COMMON\n\nUNATTENDED"
 
 
 class FakeRunner:

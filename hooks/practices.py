@@ -4,8 +4,9 @@
 # ///
 """The cc-practices hook script. hooks.json runs it with `uv run --script` in one of three modes:
 
-  session-start  prints practices/common.md plus one file per configured language into context,
-                 and a notice when rtk is installed but its Claude Code hook is not
+  session-start  prints the core rules (common topics plus one file per configured language) and
+                 the list of topic files into context, and a notice when rtk is installed but
+                 its Claude Code hook is not
   format         after Edit/Write, runs the project's formatter on the edited file
   guard-commit   before Bash/PowerShell, blocks `git commit` unless the project allows agent commits
 
@@ -20,6 +21,12 @@ safe minimum (common practices only, no formatting, commits blocked). Standard l
 on a VM). It is set per machine, not per repo, because a laptop checkout and an agent clone share
 the committed config. Unattended, session-start adds practices/unattended.md and guard-commit
 allows commits.
+
+Each rule is one bullet in one topic file, ending in `{class; source}`. The class says how the
+rule reaches the agent: `core` (printed at session start), `topic` (read from the topic file when
+the task needs it), `review` (checked in review) or `gate: <name>` (enforced by that check). The
+source is the incident behind the rule (`#12`, `owner/repo#12`) or `initial`. Only core rules are
+printed, without their markers, so each rule is written once.
 """
 
 from __future__ import annotations
@@ -54,6 +61,15 @@ GIT_COMMIT = re.compile(
     r"\s+commit(?:-tree)?(?=$|[\s;&|)])"
 )
 LANGUAGE_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
+RULE = re.compile(
+    r"^- (?P<text>.+?)\s+\{(?P<cls>core|topic|review|gate: [^;{}]+);\s*"
+    r"(?P<source>initial|#\d+|[\w.-]+/[\w.-]+#\d+)\}\s*$"
+)
+HEADER = (
+    "# Shared practices (cc-practices plugin)\n\n"
+    "The project's CLAUDE.md wins where it is narrower. These are the core rules; the rest are in "
+    "topic files under `{folder}`: {topics}. Read the topic your task touches before you start."
+)
 
 Runner = Callable[[list[str], Path], tuple[int, str]]
 Which = Callable[[str], str | None]
@@ -103,18 +119,62 @@ def is_git_commit(command: str) -> bool:
     return GIT_COMMIT.search(command) is not None
 
 
-def practices_text(folder: Path, languages: list[str], unattended: bool = False) -> str:
-    names = [
-        "common",
-        *(lang for lang in languages if LANGUAGE_NAME.match(lang) and lang != UNATTENDED_PRACTICES),
-    ]
-    if unattended:
-        names.append(UNATTENDED_PRACTICES)
-    parts = [
-        (folder / f"{name}.md").read_text(encoding="utf-8").strip()
-        for name in names
-        if (folder / f"{name}.md").is_file()
-    ]
+@dataclass(frozen=True)
+class Rule:
+    text: str
+    cls: str
+    source: str
+
+
+@dataclass(frozen=True)
+class Topic:
+    path: Path
+    title: str
+    rules: list[Rule]
+    problems: list[str]
+
+
+def read_topic(path: Path) -> Topic:
+    """A topic file: a `# Title` line and one bullet per rule. Other bullets are problems."""
+    title, rules, problems = path.stem, [], []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if line.startswith("# "):
+            title = line[2:].strip()
+        elif line.startswith("- "):
+            match = RULE.match(line)
+            if match:
+                rules.append(Rule(match["text"], match["cls"], match["source"]))
+            else:
+                problems.append(f"{path.name}:{number}: rule has no {{class; source}} marker")
+        elif line.strip():
+            problems.append(f"{path.name}:{number}: only a title and rule bullets are allowed")
+    return Topic(path, title, rules, problems)
+
+
+def topic_files(folder: Path, languages: list[str], unattended: bool = False) -> list[Path]:
+    """Common topics, then the configured languages, then the unattended rules when asked for."""
+    paths = sorted((folder / "common").glob("*.md"))
+    for lang in languages:
+        path = folder / "languages" / f"{lang}.md"
+        if LANGUAGE_NAME.match(lang) and path.is_file() and path not in paths:
+            paths.append(path)
+    if unattended and (folder / f"{UNATTENDED_PRACTICES}.md").is_file():
+        paths.append(folder / f"{UNATTENDED_PRACTICES}.md")
+    return paths
+
+
+def practices_text(
+    folder: Path, languages: list[str], unattended: bool = False, shown_folder: str | None = None
+) -> str:
+    """The session-start text: a header naming the topic files, then each topic's core rules."""
+    topics = [read_topic(path) for path in topic_files(folder, languages, unattended)]
+    listed = [t for t in topics if t.path.stem != UNATTENDED_PRACTICES]
+    names = ", ".join(t.path.relative_to(folder).as_posix() for t in listed)
+    parts = [HEADER.format(folder=shown_folder or folder.as_posix(), topics=names)]
+    for topic in topics:
+        core = [f"- {rule.text}" for rule in topic.rules if rule.cls == "core"]
+        if core:
+            parts.append("\n".join([f"## {topic.title}", *core]))
     return "\n\n".join(parts)
 
 
