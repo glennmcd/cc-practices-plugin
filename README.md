@@ -15,6 +15,7 @@ used locally and installed from a directory marketplace, not published.
 | `skills/verify` | Runs the project's configured lint, typecheck and test commands |
 | `skills/commit-message` | Conventional Commit message, type chosen by effect on users |
 | `skills/adr` | Numbered decision record in `docs/decisions/` |
+| `skills/sync-config` | Diffs a project's `cc-practices.json` against the current templates and proposes missing keys |
 | `hooks/` | Session-start rules, format on edit, `git commit` guard, check that rtk's hook is installed |
 | `templates/` | Per-language `cc-practices.json`, Python CI, Dependabot, pyproject tool settings, import-layering test, `SECURITY.md` |
 
@@ -29,7 +30,7 @@ claude plugin install cc-practices@cc-practices --scope local
 
 `--scope local` writes the enablement to the project's git-ignored `.claude/settings.local.json`, so nothing
 machine-specific is committed. After editing the plugin, run `claude plugin marketplace update cc-practices` and
-`claude plugin update cc-practices@cc-practices`, then restart the session.
+`claude plugin update cc-practices@cc-practices`, then restart the session. Run the `sync-cc-practices-config` skill in each project to pick up template changes the update did not apply.
 
 ## Configure a project
 
