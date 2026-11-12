@@ -10,6 +10,5 @@
     "typecheck": "uv run mypy",
     "test": "uv run pytest -q --tb=short"
   },
-  "allowAgentCommits": false,
-  "compactOutput": false
+  "allowAgentCommits": false
 }

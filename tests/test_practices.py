@@ -2,7 +2,6 @@
 
 import io
 import json
-import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -143,6 +142,7 @@ def run(
     project: Path,
     runner: practices.Runner | None = None,
     env: Mapping[str, str] | None = None,
+    which: practices.Which = lambda _name: None,
 ) -> tuple[int, str, str]:
     out, err = io.StringIO(), io.StringIO()
     code = main(
@@ -152,6 +152,7 @@ def run(
         stderr=err,
         env={"CLAUDE_PROJECT_DIR": str(project), **(env or {})},
         runner=runner,
+        which=which,
     )
     return code, out.getvalue(), err.getvalue()
 
@@ -223,22 +224,6 @@ def test_unattended_rules_cannot_be_loaded_as_a_language(tmp_path: Path) -> None
     (tmp_path / "unattended.md").write_text("UNATTENDED", encoding="utf-8")
     assert practices_text(tmp_path, ["unattended"]) == "COMMON"
     assert practices_text(tmp_path, [], unattended=True) == "COMMON\n\nUNATTENDED"
-
-
-def test_compact_output_is_off_when_unattended(tmp_path: Path) -> None:
-    write_config(tmp_path, {"compactOutput": True})
-    out = io.StringIO()
-    rewriter = FakeRewriter("rtk git status")
-    code = main(
-        ["compact-output"],
-        stdin=io.StringIO(json.dumps(bash("git status"))),
-        stdout=out,
-        stderr=io.StringIO(),
-        env={"CLAUDE_PROJECT_DIR": str(tmp_path), **UNATTENDED},
-        rewriter=rewriter,
-    )
-    assert (code, out.getvalue()) == (0, "")
-    assert rewriter.calls == []
 
 
 class FakeRunner:
@@ -326,100 +311,65 @@ def test_bad_stdin_does_not_block(tmp_path: Path) -> None:
     assert code == 0
 
 
-# --- compact-output ------------------------------------------------------------------------------
+# --- rtk hook check ------------------------------------------------------------------------------
 
 
-class FakeRewriter:
-    def __init__(self, result: str | None) -> None:
-        self.calls: list[str] = []
-        self.result = result
-
-    def __call__(self, command: str) -> str | None:
-        self.calls.append(command)
-        return self.result
+def write_settings(folder: Path, data: object) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "settings.json").write_text(json.dumps(data), encoding="utf-8")
 
 
-def compact(
-    payload: Mapping[str, object], project: Path, rewriter: FakeRewriter
-) -> tuple[int, str]:
-    out = io.StringIO()
-    code = main(
-        ["compact-output"],
-        stdin=io.StringIO(json.dumps(payload)),
-        stdout=out,
-        stderr=io.StringIO(),
-        env={"CLAUDE_PROJECT_DIR": str(project)},
-        rewriter=rewriter,
-    )
-    return code, out.getvalue()
+def rtk_settings(command: str) -> dict[str, object]:
+    hook = {"type": "command", "command": command}
+    return {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [hook]}]}}
 
 
-def test_compact_output_is_off_by_default(tmp_path: Path) -> None:
-    rewriter = FakeRewriter("rtk git status")
-    assert compact(bash("git status"), tmp_path, rewriter) == (0, "")
-    assert rewriter.calls == []
-
-
-def test_compact_output_rewrites_and_asks(tmp_path: Path) -> None:
-    write_config(tmp_path, {"compactOutput": True})
-    payload = {"tool_name": "Bash", "tool_input": {"command": "git status", "timeout": 5000}}
-    code, out = compact(payload, tmp_path, FakeRewriter("rtk git status"))
+def start(project: Path, user: Path, rtk: str | None) -> str:
+    env = {"CLAUDE_CONFIG_DIR": str(user)}
+    code, out, _ = run("session-start", {}, project, env=env, which=lambda _name: rtk)
     assert code == 0
-    decision = json.loads(out)["hookSpecificOutput"]
-    assert decision["hookEventName"] == "PreToolUse"
-    # "ask" keeps the user's permission prompt; "allow" would skip it for the rewritten command.
-    assert decision["permissionDecision"] == "ask"
-    assert decision["updatedInput"] == {"command": "rtk git status", "timeout": 5000}
+    return out
 
 
-@pytest.mark.parametrize("result", [None, "rtk git status"])
-def test_compact_output_leaves_command_alone_without_a_new_rewrite(
-    tmp_path: Path, result: str | None
-) -> None:
-    write_config(tmp_path, {"compactOutput": True})
-    assert compact(bash("rtk git status"), tmp_path, FakeRewriter(result)) == (0, "")
-
-
-def test_compact_output_ignores_empty_commands(tmp_path: Path) -> None:
-    write_config(tmp_path, {"compactOutput": True})
-    rewriter = FakeRewriter("rtk")
-    assert compact(bash("  "), tmp_path, rewriter) == (0, "")
-    assert rewriter.calls == []
-
-
-def test_rtk_rewrite_is_none_without_rtk(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("shutil.which", lambda _name: None)
-    assert practices.rtk_rewrite("git status") is None
+def test_notice_when_rtk_is_installed_without_its_hook(tmp_path: Path) -> None:
+    write_settings(tmp_path / "user", {"hooks": {"Notification": []}})
+    out = start(tmp_path / "project", tmp_path / "user", rtk="/bin/rtk")
+    assert "rtk init -g --auto-patch" in out
 
 
 @pytest.mark.parametrize(
-    ("returncode", "stdout", "expected"),
-    [
-        (0, "rtk git status\n", "rtk git status"),
-        (3, "rtk git status\n", "rtk git status"),
-        (1, "", None),
-        (2, "rtk git status\n", None),
-        (0, "", None),
-    ],
+    "command",
+    ["rtk hook claude", '"C:\\tools\\rtk.exe" hook claude', "~/.claude/hooks/rtk-rewrite.sh"],
 )
-def test_rtk_rewrite_reads_exit_code_and_stdout(
-    monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, expected: str | None
-) -> None:
-    monkeypatch.setattr("shutil.which", lambda _name: "/bin/rtk")
-
-    def fake_run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        assert args == ["/bin/rtk", "rewrite", "git status"]
-        return subprocess.CompletedProcess(args, returncode, stdout, "[rtk] warning\n")
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-    assert practices.rtk_rewrite("git status") == expected
+def test_no_notice_when_the_user_settings_have_the_hook(tmp_path: Path, command: str) -> None:
+    write_settings(tmp_path / "user", rtk_settings(command))
+    assert "rtk init" not in start(tmp_path / "project", tmp_path / "user", rtk="/bin/rtk")
 
 
-def test_rtk_rewrite_is_none_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("shutil.which", lambda _name: "/bin/rtk")
+def test_no_notice_when_the_project_settings_have_the_hook(tmp_path: Path) -> None:
+    write_settings(tmp_path / "project" / ".claude", rtk_settings("rtk hook claude"))
+    assert "rtk init" not in start(tmp_path / "project", tmp_path / "user", rtk="/bin/rtk")
 
-    def slow_run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        raise subprocess.TimeoutExpired(args, 10)
 
-    monkeypatch.setattr("subprocess.run", slow_run)
-    assert practices.rtk_rewrite("git status") is None
+def test_no_notice_without_rtk(tmp_path: Path) -> None:
+    assert "rtk init" not in start(tmp_path / "project", tmp_path / "user", rtk=None)
+
+
+def test_unreadable_settings_count_as_no_hook(tmp_path: Path) -> None:
+    (tmp_path / "user").mkdir()
+    (tmp_path / "user" / "settings.json").write_text("{not json", encoding="utf-8")
+    assert "rtk init" in start(tmp_path / "project", tmp_path / "user", rtk="/bin/rtk")
+
+
+def test_hook_check_ignores_rtk_outside_hooks(tmp_path: Path) -> None:
+    write_settings(tmp_path / "user", {"permissions": {"allow": ["Bash(rtk hook claude)"]}})
+    assert not practices.has_rtk_hook([tmp_path / "user" / "settings.json"])
+
+
+def test_settings_files_default_to_the_home_folder(tmp_path: Path) -> None:
+    files = practices.settings_files(tmp_path, {})
+    assert files[0] == Path.home() / ".claude" / "settings.json"
+    assert files[1:] == [
+        tmp_path / ".claude" / "settings.json",
+        tmp_path / ".claude" / "settings.local.json",
+    ]

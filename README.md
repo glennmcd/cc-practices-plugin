@@ -15,7 +15,7 @@ used locally and installed from a directory marketplace, not published.
 | `skills/verify` | Runs the project's configured lint, typecheck and test commands |
 | `skills/commit-message` | Conventional Commit message, type chosen by effect on users |
 | `skills/adr` | Numbered decision record in `docs/decisions/` |
-| `hooks/` | Session-start rules, format on edit, `git commit` guard, optional `rtk` rewrite of Bash commands |
+| `hooks/` | Session-start rules, format on edit, `git commit` guard, check that rtk's hook is installed |
 | `templates/` | Per-language `cc-practices.json`, Python CI, Dependabot, pyproject tool settings, import-layering test, `SECURITY.md` |
 
 ## Install
@@ -44,8 +44,7 @@ Copy `templates/<language>/cc-practices.json` to the project's `.claude/cc-pract
     "typecheck": "uv run mypy",
     "test": "uv run pytest -q --tb=short"
   },
-  "allowAgentCommits": false,
-  "compactOutput": false
+  "allowAgentCommits": false
 }
 ```
 
@@ -58,15 +57,27 @@ Copy `templates/<language>/cc-practices.json` to the project's `.claude/cc-pract
   check in detail when it needs more.
 - `allowAgentCommits` defaults to `false`: the `PreToolUse` hook blocks `git commit` (Bash or PowerShell, with or
   without `-C`/`-c` options) and asks for a suggested message instead.
-- `compactOutput` defaults to `false`. When `true` and [rtk](https://github.com/rtk-ai/rtk) is on `PATH`, a
-  `PreToolUse` hook on the Bash tool replaces the command with `rtk rewrite`'s compact equivalent (`git status`
-  becomes `rtk git status`), which cuts the tokens command output costs. The hook answers `ask`, not `allow`,
-  so you confirm each rewritten command: an `allow` would skip the prompt the original command would have had.
-  Commands rtk has no rewrite for, and every command when rtk is missing, run unchanged. The PowerShell tool
-  is not rewritten.
+Without the file, the plugin loads only the common practices, formats nothing and blocks agent commits.
 
-Without the file, the plugin loads only the common practices, formats nothing, rewrites nothing and blocks
-agent commits.
+## Compact command output with rtk
+
+cc-practices does not rewrite commands itself. [rtk](https://github.com/rtk-ai/rtk)'s own hook does, on every
+Bash and PowerShell call, which is what makes it reliable: a hook runs every time, a rule in a prompt most of
+the time. Install it once per machine:
+
+```bash
+rtk init -g --auto-patch
+rtk init -g --show
+```
+
+The first adds `rtk hook claude` to `~/.claude/settings.json`; the second checks it. At session start
+cc-practices reads the user, project and local settings files, and when `rtk` is on `PATH` but no hook calls
+it, tells Claude to ask you to run the install. It never edits your settings.
+
+rtk's hook returns the rewritten command with no permission decision, so it goes through your normal
+permission check and works unattended. rtk honours `deny` rules (a denied command is not rewritten), but an
+`ask` rule such as `Bash(git log:*)` no longer matches once the command reads `rtk git log`. Do not add an
+allow rule like `Bash(rtk:*)`: it would let any rewritten command through without a prompt.
 
 ## Unattended sessions
 
@@ -79,7 +90,6 @@ processes inherit it. When it is set:
   and anything that needs the owner becomes a handoff comment on the issue or PR, after which the agent ends.
 - `git commit` is allowed whatever `allowAgentCommits` says. Without this, a sub-agent that
   fleet-kit's context ceiling tells to commit and hand off could do neither.
-- `compactOutput` is ignored, because its `ask` decision would wait for a person.
 
 ## Develop
 

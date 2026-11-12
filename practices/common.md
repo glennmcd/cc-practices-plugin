@@ -8,7 +8,7 @@ These apply to every project that enables the plugin. The project's own CLAUDE.m
 - Before moving on, run the project's lint, typecheck and test commands (the `verify` skill reads them from `.claude/cc-practices.json`).
 - Tests never touch the network or a hosted service: use fakes behind the project's adapter interfaces, HTTP mocks, or in-memory databases.
 - Ask before adding a dependency the project brief does not name; in an unattended session, hand off instead.
-- Keep command output small: run quiet or failures-only variants first and widen only when they don't explain the problem. When `compactOutput` or rtk's own hook rewrites commands through `rtk`, treat the compact output as the result, including when relaying it to the user. Use `rtk recall` for anything it elided, and rerun with `rtk proxy <cmd>` only when the user asks for full output or the compact result is unusable.
+- Keep command output small: run quiet or failures-only variants first and widen only when they don't explain the problem.
 
 ## Code and secrets
 

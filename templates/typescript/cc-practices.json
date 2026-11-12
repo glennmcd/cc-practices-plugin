@@ -9,6 +9,5 @@
     "typecheck": "bun run typecheck",
     "test": "bun run test"
   },
-  "allowAgentCommits": false,
-  "compactOutput": false
+  "allowAgentCommits": false
 }

@@ -4,19 +4,22 @@
 # ///
 """The cc-practices hook script. hooks.json runs it with `uv run --script` in one of three modes:
 
-  session-start  prints practices/common.md plus one file per configured language into context
+  session-start  prints practices/common.md plus one file per configured language into context,
+                 and a notice when rtk is installed but its Claude Code hook is not
   format         after Edit/Write, runs the project's formatter on the edited file
   guard-commit   before Bash/PowerShell, blocks `git commit` unless the project allows agent commits
-  compact-output before Bash, rewrites the command through `rtk rewrite` when the project opts in
+
+Compacting command output is left to rtk's own hook (`rtk init -g`), which runs on every call:
+a gate rather than a rule. This script only checks that the hook is there; it never edits the
+user's settings.
 
 Each project configures it in `.claude/cc-practices.json`; without that file every mode does the
-safe minimum (common practices only, no formatting, commits blocked, no rewriting). Standard
-library only.
+safe minimum (common practices only, no formatting, commits blocked). Standard library only.
 
 `CC_PRACTICES_UNATTENDED=1` in the environment marks a session no one is watching (a fleet agent
 on a VM). It is set per machine, not per repo, because a laptop checkout and an agent clone share
-the committed config. Unattended, session-start adds practices/unattended.md, guard-commit allows
-commits, and compact-output stays off, since its `ask` decision would wait for a person.
+the committed config. Unattended, session-start adds practices/unattended.md and guard-commit
+allows commits.
 """
 
 from __future__ import annotations
@@ -37,7 +40,12 @@ UNATTENDED_ENV = "CC_PRACTICES_UNATTENDED"
 UNATTENDED_PRACTICES = "unattended"
 PRACTICES_DIR = Path(__file__).resolve().parent.parent / "practices"
 FORMAT_TIMEOUT_SECONDS = 60
-REWRITE_TIMEOUT_SECONDS = 10
+# `rtk hook claude` (rtk init -g) or the older `rtk-rewrite` script, anywhere in a hooks section.
+RTK_HOOK = re.compile(r"rtk(?:\.exe)?(?:\\?[\"'])?\s+hook\b|rtk-rewrite")  # on JSON-encoded text
+RTK_HOOK_MISSING = (
+    "cc-practices: rtk is installed but its Claude Code hook is not, so command output is not "
+    "compacted. Tell the user to run `rtk init -g --auto-patch` and restart the session."
+)
 
 # `git`, any global options (`-C dir`, `-c key=value`, `--no-pager`), then `commit`/`commit-tree`.
 GIT_COMMIT = re.compile(
@@ -48,7 +56,7 @@ GIT_COMMIT = re.compile(
 LANGUAGE_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 
 Runner = Callable[[list[str], Path], tuple[int, str]]
-Rewriter = Callable[[str], str | None]
+Which = Callable[[str], str | None]
 
 
 @dataclass(frozen=True)
@@ -57,7 +65,6 @@ class Config:
     format_extensions: list[str] = field(default_factory=list)
     format_command: list[str] = field(default_factory=list)
     allow_commits: bool = False
-    compact_output: bool = False
     unattended: bool = False
 
 
@@ -89,7 +96,6 @@ def load_config(project: Path) -> Config:
         format_extensions=_str_list(fmt.get("extensions")),
         format_command=_str_list(fmt.get("command")),
         allow_commits=data.get("allowAgentCommits") is True,
-        compact_output=data.get("compactOutput") is True,
     )
 
 
@@ -130,31 +136,34 @@ def run_command(args: list[str], cwd: Path) -> tuple[int, str]:
     return result.returncode, (result.stdout + result.stderr).strip()
 
 
-def rtk_rewrite(command: str) -> str | None:
-    """The command `rtk rewrite` proposes, or None when rtk is missing or has no equivalent.
-
-    rtk exits 0 (or 3, when it wants the user asked) with the rewrite on stdout, and 1 when the
-    command has no compact form. Its diagnostics go to stderr and are ignored.
-    """
-    rtk = shutil.which("rtk")
-    if rtk is None:
-        return None
-    try:
-        result = subprocess.run(
-            [rtk, "rewrite", command],
-            capture_output=True,
-            text=True,
-            timeout=REWRITE_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    rewritten = result.stdout.strip()
-    return rewritten if result.returncode in {0, 3} and rewritten else None
+def settings_files(project: Path, env: Mapping[str, str]) -> list[Path]:
+    """The Claude Code settings files whose hooks apply to a session in `project`."""
+    config_dir = env.get("CLAUDE_CONFIG_DIR")
+    user = Path(config_dir) if config_dir else Path.home() / ".claude"
+    local = project / ".claude"
+    return [user / "settings.json", local / "settings.json", local / "settings.local.json"]
 
 
-def _session_start(config: Config, stdout: TextIO) -> int:
-    stdout.write(practices_text(PRACTICES_DIR, config.languages, config.unattended) + "\n")
+def has_rtk_hook(paths: list[Path]) -> bool:
+    """True when any of the settings files registers rtk's hook. Unreadable files are skipped."""
+    for path in paths:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        hooks = data.get("hooks") if isinstance(data, dict) else None
+        if hooks and RTK_HOOK.search(json.dumps(hooks)):
+            return True
+    return False
+
+
+def _session_start(
+    config: Config, project: Path, env: Mapping[str, str], stdout: TextIO, which: Which
+) -> int:
+    text = practices_text(PRACTICES_DIR, config.languages, config.unattended)
+    if which("rtk") and not has_rtk_hook(settings_files(project, env)):
+        text += "\n\n" + RTK_HOOK_MISSING
+    stdout.write(text + "\n")
     return 0
 
 
@@ -170,30 +179,6 @@ def _guard_commit(config: Config, tool_input: Mapping[str, object], stderr: Text
         f"in {CONFIG_PATH.as_posix()}.\n"
     )
     return 2
-
-
-def _compact_output(
-    config: Config, tool_input: Mapping[str, object], stdout: TextIO, rewriter: Rewriter
-) -> int:
-    command = tool_input.get("command")
-    if config.unattended or not config.compact_output:
-        return 0
-    if not isinstance(command, str) or not command.strip():
-        return 0
-    rewritten = rewriter(command)
-    if rewritten is None or rewritten == command.strip():
-        return 0
-    # "ask", not "allow": an "allow" would skip the prompt the original command would have had.
-    output = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "ask",
-            "permissionDecisionReason": "cc-practices: compact output via rtk",
-            "updatedInput": {**tool_input, "command": rewritten},
-        }
-    }
-    stdout.write(json.dumps(output) + "\n")
-    return 0
 
 
 def _format(
@@ -228,10 +213,10 @@ def main(
     stderr: TextIO = sys.stderr,
     env: Mapping[str, str] = os.environ,
     runner: Runner | None = None,
-    rewriter: Rewriter | None = None,
+    which: Which = shutil.which,
 ) -> int:
     mode = argv[0] if argv else ""
-    if mode not in {"session-start", "format", "guard-commit", "compact-output"}:
+    if mode not in {"session-start", "format", "guard-commit"}:
         stderr.write(f"cc-practices: unknown mode {mode!r}\n")
         return 1
     try:
@@ -246,11 +231,9 @@ def main(
     tool_input = tool_input if isinstance(tool_input, dict) else {}
 
     if mode == "session-start":
-        return _session_start(config, stdout)
+        return _session_start(config, project, env, stdout, which)
     if mode == "guard-commit":
         return _guard_commit(config, tool_input, stderr)
-    if mode == "compact-output":
-        return _compact_output(config, tool_input, stdout, rewriter or rtk_rewrite)
     return _format(config, project, tool_input, stderr, runner or run_command)
 
 
