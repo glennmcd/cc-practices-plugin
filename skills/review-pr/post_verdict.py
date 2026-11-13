@@ -15,12 +15,17 @@ what CI already said.
 marker that fleet-kit's `gates/verdict.py` reads (fleet-kit docs/verdict.md). The marker is the
 contract: a test here and one in fleet-kit pin its literal form. Uses the `gh` CLI, signed in as an
 account listed in `verdict.reviewers`. Standard library only.
+
+When `FLEET_REVIEWER_LOGIN` is set, as on a fleet's review slots, `post` first checks that `gh` is
+signed in as that account and refuses otherwise. A review slot also holds the authors' token, so a
+mix-up over which variable carries which token would otherwise post the verdict as the author.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -38,6 +43,10 @@ Gh = Callable[..., Any]
 
 class HeadMoved(Exception):
     """The PR's head is not the commit that was reviewed."""
+
+
+class WrongAccount(Exception):
+    """`gh` is signed in as someone other than the expected reviewer."""
 
 
 def format_marker(sha: str, verdict: str) -> str:
@@ -96,8 +105,15 @@ def post(
     body: str,
     gh: Gh = gh_api,
     warn: Callable[[str], None] = lambda message: print(message, file=sys.stderr),
+    expect_login: str | None = None,
 ) -> str:
     comment = compose_comment(sha, verdict, body)  # validates sha and verdict before any call
+    if expect_login:
+        login = str(gh("GET", "user").get("login") or "")
+        if login.lower() != expect_login.lower():
+            raise WrongAccount(
+                f"gh is signed in as {login or 'nobody'}, not the reviewer {expect_login}"
+            )
     now = gh("GET", f"repos/{repo}/pulls/{pr}")["head"]["sha"]
     if now != sha:
         raise HeadMoved(f"the PR head is now {now[:7]}, not the reviewed {sha[:7]}; review again")
@@ -126,16 +142,22 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--body-file", required=True)
     args = parser.parse_args(argv)
     if args.command == "ready":
-        result = ready(args.repo, args.pr)
+        result = ready(args.repo, args.pr, gh_api)
         print(json.dumps(result))
         return 0 if result["ok"] else 1
     try:
         print(
             post(
-                args.repo, args.pr, args.sha, args.verdict, Path(args.body_file).read_text("utf-8")
+                args.repo,
+                args.pr,
+                args.sha,
+                args.verdict,
+                Path(args.body_file).read_text("utf-8"),
+                gh_api,
+                expect_login=os.environ.get("FLEET_REVIEWER_LOGIN") or None,
             )
         )
-    except (HeadMoved, ValueError) as error:
+    except (HeadMoved, WrongAccount, ValueError) as error:
         print(f"not posted: {error}", file=sys.stderr)
         return 2
     return 0

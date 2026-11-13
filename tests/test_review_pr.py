@@ -210,3 +210,52 @@ def test_the_issue_template_asks_for_what_an_agent_needs() -> None:
         assert heading in text, heading
     assert "- [ ]" in text
     assert "currently" in frontmatter(path)["title"]
+
+
+# --- the reviewer's account ---------------------------------------------------------------------
+
+
+def test_post_checks_the_account_when_a_reviewer_login_is_expected() -> None:
+    gh = FakeGh(
+        {"GET user": {"login": "G26work"}, "POST repos/o/r/issues/7/comments": {"html_url": "u"}}
+    )
+    post_verdict.post("o/r", 7, HEAD, "approve", "ok", gh, expect_login="g26work")
+    assert len(gh.posted) == 1
+
+
+@pytest.mark.parametrize("login", ["glennmcd", "g26work-bot", ""])
+def test_post_refuses_to_post_as_any_other_account(login: str) -> None:
+    gh = FakeGh(
+        {"GET user": {"login": login}, "POST repos/o/r/issues/7/comments": {"html_url": "u"}}
+    )
+    with pytest.raises(post_verdict.WrongAccount, match="g26work"):
+        post_verdict.post("o/r", 7, HEAD, "approve", "ok", gh, expect_login="g26work")
+    assert gh.posted == []
+
+
+def test_main_reads_the_expected_login_from_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    body = tmp_path / "findings.md"
+    body.write_text("ok", encoding="utf-8")
+    gh = FakeGh(
+        {"GET user": {"login": "glennmcd"}, "POST repos/o/r/issues/7/comments": {"html_url": "u"}}
+    )
+    monkeypatch.setattr(post_verdict, "gh_api", gh)
+    monkeypatch.setenv("FLEET_REVIEWER_LOGIN", "g26work")
+    argv = [
+        "post",
+        "--repo",
+        "o/r",
+        "--pr",
+        "7",
+        "--sha",
+        HEAD,
+        "--verdict",
+        "approve",
+        "--body-file",
+        str(body),
+    ]
+    assert post_verdict.main(argv) == 2
+    assert gh.posted == []
+    assert "glennmcd" in capsys.readouterr().err

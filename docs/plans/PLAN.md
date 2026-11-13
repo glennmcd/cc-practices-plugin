@@ -51,8 +51,9 @@ Extend the existing agent rather than add a second one.
 
 Done in 0.7.0: `code-reviewer` has an adversarial mode that ends in a `VERDICT:` line, and the `review-pr`
 skill runs it and posts the verdict through `skills/review-pr/post_verdict.py`, which refuses a PR that is red,
-a draft or whose head moved. The marker is pinned by a test here and in fleet-kit. Open: the reviewer and the
-author still share one GitHub token (see fleet-kit `docs/verdict.md`).
+a draft or whose head moved. The marker is pinned by a test here and in fleet-kit. The reviewer now has its own
+account (`g26work`); on fleet-kit's review slots `post_verdict.py` refuses to post as any other account
+(`FLEET_REVIEWER_LOGIN`), and the skill has an unattended path.
 
 ## 4. Prose rules to gates
 

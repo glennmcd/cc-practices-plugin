@@ -138,7 +138,9 @@ passed, gives the reviewer only the diff and the issue's *Done when* list, and r
 landed in the meantime. The comment is read by fleet-kit's `reviewer-verdict` check (`docs/verdict.md` there),
 which a ruleset can require, so a PR cannot merge on an old approval. The helper is
 `skills/review-pr/post_verdict.py`; it needs the `gh` CLI signed in as an account listed in the check's
-`verdict.reviewers`.
+`verdict.reviewers`. With `FLEET_REVIEWER_LOGIN` set, as on fleet-kit's review slots, it refuses to post unless
+`gh` is signed in as that account. Unattended, the skill ends with a one-line reason instead of asking, and never
+edits, pushes or merges.
 
 ### Agent-ready issues
 
