@@ -18,7 +18,7 @@ default-groups = ["dev"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["hooks"]
+pythonpath = ["hooks", "templates/python"]
 
 [tool.ruff]
 line-length = 100
@@ -34,4 +34,4 @@ ignore = ["S603"]
 [tool.mypy]
 strict = true
 files = ["hooks", "tests"]
-mypy_path = "hooks"
+mypy_path = "hooks,templates/python"

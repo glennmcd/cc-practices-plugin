@@ -29,6 +29,8 @@ jobs:
       - run: uv run mypy
       # Tests use fakes and mocks only, so no secrets or network are needed.
       - run: uv run pytest
+      # docs/CODE_MAP.md lists every module; regenerate it with scripts/code_map.py.
+      - run: uv run scripts/code_map.py --check
       # Generated files are committed; fail when they are stale. Replace with the project's generator.
       # - name: Generated files are up to date
       #   run: |
