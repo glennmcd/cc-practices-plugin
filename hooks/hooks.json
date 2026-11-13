@@ -1,5 +1,5 @@
 {
-  "description": "cc-practices: shared rules at session start, format on edit, guard agent commits",
+  "description": "cc-practices: shared rules at session and sub-agent start, format on edit, guard agent commits",
   "hooks": {
     "SessionStart": [
       {
@@ -8,6 +8,17 @@
           {
             "type": "command",
             "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/practices.py\" session-start",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/practices.py\" subagent-start",
             "timeout": 30
           }
         ]

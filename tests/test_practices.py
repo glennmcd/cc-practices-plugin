@@ -463,3 +463,48 @@ def test_settings_files_default_to_the_home_folder(tmp_path: Path) -> None:
         tmp_path / ".claude" / "settings.json",
         tmp_path / ".claude" / "settings.local.json",
     ]
+
+
+# --- subagent-start ------------------------------------------------------------------------------
+
+
+def subagent_context(project: Path, env: Mapping[str, str] | None = None) -> str:
+    payload = {"hook_event_name": "SubagentStart", "agent_id": "a1", "agent_type": "Explore"}
+    code, out, _ = run("subagent-start", payload, project, env=env, which=lambda _name: "/bin/rtk")
+    assert code == 0
+    output = json.loads(out)["hookSpecificOutput"]
+    assert output["hookEventName"] == "SubagentStart"
+    return str(output["additionalContext"])
+
+
+def test_subagent_start_gives_the_session_start_rules(tmp_path: Path) -> None:
+    write_config(tmp_path, {"languages": ["python"]})
+    context = subagent_context(tmp_path)
+    _, session, _ = run("session-start", {}, tmp_path)
+    assert context == session.strip()
+    assert "## Python" in context
+
+
+def test_subagent_start_adds_unattended_rules(tmp_path: Path) -> None:
+    assert "Done when" in subagent_context(tmp_path, env=UNATTENDED)
+    assert "Done when" not in subagent_context(tmp_path)
+
+
+def test_subagent_start_leaves_out_the_rtk_notice(tmp_path: Path) -> None:
+    # rtk is "installed" and no settings file has its hook; the notice asks the user, not an agent.
+    context = subagent_context(tmp_path, env={"CLAUDE_CONFIG_DIR": str(tmp_path / "user")})
+    assert "rtk init" not in context
+
+
+def test_hooks_json_registers_every_mode() -> None:
+    hooks = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+    commands = {
+        event: [h["command"].rsplit(" ", 1)[1] for group in groups for h in group["hooks"]]
+        for event, groups in hooks.items()
+    }
+    assert commands == {
+        "SessionStart": ["session-start"],
+        "SubagentStart": ["subagent-start"],
+        "PreToolUse": ["guard-commit"],
+        "PostToolUse": ["format"],
+    }

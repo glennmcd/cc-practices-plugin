@@ -5,8 +5,10 @@ round). The split: cc-practices holds the general practices (rules, skills, revi
 templates); fleet-kit holds what only a fleet needs (token hooks, measurement, CI gates, control plane).
 Its plan is `fleet-kit/docs/plans/PLAN.md`.
 
-Done so far: unattended mode (`CC_PRACTICES_UNATTENDED`, 0.2.0) and command compaction left to rtk's own
-hook (0.3.0).
+Done so far: unattended mode (`CC_PRACTICES_UNATTENDED`, 0.2.0), command compaction left to rtk's own
+hook (0.3.0), topic files with a byte cap (0.4.0), and the core rules for sub-agents through a
+`SubagentStart` hook (0.5.0). Sub-agents never receive SessionStart output: none of 18 sub-agent
+transcripts had it, including two in commitment-tracker-ai whose parent sessions did.
 
 ## 1. Rules layer (roadmap round 2)
 
@@ -22,7 +24,7 @@ Left for a second cut:
 - Lower the cap toward 2 KB, by moving rules to gates (see 4) or out of `core`.
 - Triggered pointers: after an Edit or Write on matching paths (`tests/**`, `.github/workflows/**`,
   `pyproject.toml`), tell the agent once per session to read that topic file. Adds a `triggered` class.
-  Check first that a PostToolUse hook can add context for the agent.
+  Claude Code 2.1.310 accepts `hookSpecificOutput.additionalContext` from PostToolUse hooks.
 - Code maps: `templates/python/code_map.py` writes `docs/CODE_MAP.md` (one line per module: path,
   docstring summary, public names), with `--check` as a CI step.
 - Handoff template: the 30-line comment `unattended.md` asks for, as `templates/handoff.md`.
@@ -73,4 +75,6 @@ produces one: problem, scope, out of scope, *Done when*.
 
 - Hook cost: with fleet-kit installed, each Bash call starts three `uv run --script` processes. Consider
   one dispatcher process for both plugins' Bash hooks, or a faster runner.
-- Check whether sub-agents receive SessionStart output; if not, the practices never reach them.
+- Confirm in a live session that a sub-agent's transcript shows the `SubagentStart` context
+  (`first_context.py --project <name> --subagent` in fleet-kit). If read-only agents (Explore,
+  code-reviewer) don't need the rules, match the hook to the agent types that write code.

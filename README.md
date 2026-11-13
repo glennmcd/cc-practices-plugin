@@ -16,7 +16,7 @@ used locally and installed from a directory marketplace, not published.
 | `skills/commit-message` | Conventional Commit message, type chosen by effect on users |
 | `skills/adr` | Numbered decision record in `docs/decisions/` |
 | `skills/sync-config` | Diffs a project's `cc-practices.json` against the current templates and proposes missing keys |
-| `hooks/` | Session-start rules, format on edit, `git commit` guard, check that rtk's hook is installed |
+| `hooks/` | Core rules at session start and to every sub-agent, format on edit, `git commit` guard, check that rtk's hook is installed |
 | `templates/` | Per-language `cc-practices.json`, Python CI, Dependabot, pyproject tool settings, import-layering test, `SECURITY.md` |
 
 ## Install
@@ -63,7 +63,8 @@ Without the file, the plugin loads only the common practices, formats nothing an
 ## Rules
 
 Every session pays for the text loaded at its start on every model call, so that text holds only the core
-rules and points to the rest. Each rule is one bullet in one topic file, ending in `{class; source}`:
+rules and points to the rest. Sub-agents never see SessionStart output, so a `SubagentStart` hook gives each
+one the same text as `additionalContext`. Each rule is one bullet in one topic file, ending in `{class; source}`:
 
 ```markdown
 - Secrets come from the environment or a secret store, never from code, committed config or logs. {core; initial}
@@ -71,7 +72,7 @@ rules and points to the rest. Each rule is one bullet in one topic file, ending 
 
 | Class | How the rule reaches the agent |
 | --- | --- |
-| `core` | Printed at session start, without the marker |
+| `core` | Printed at session start and given to every sub-agent, without the marker |
 | `topic` | The agent reads the topic file when its task touches that topic; session start lists the files |
 | `gate: <name>` | Enforced by the named check, whose failure message names the rule |
 | `review` | Checked in review |

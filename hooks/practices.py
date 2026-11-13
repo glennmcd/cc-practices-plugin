@@ -2,11 +2,13 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
-"""The cc-practices hook script. hooks.json runs it with `uv run --script` in one of three modes:
+"""The cc-practices hook script. hooks.json runs it with `uv run --script` in one of four modes:
 
   session-start  prints the core rules (common topics plus one file per configured language) and
                  the list of topic files into context, and a notice when rtk is installed but
                  its Claude Code hook is not
+  subagent-start gives each sub-agent the same core rules as JSON `additionalContext`, since
+                 sub-agents never receive SessionStart output
   format         after Edit/Write, runs the project's formatter on the edited file
   guard-commit   before Bash/PowerShell, blocks `git commit` unless the project allows agent commits
 
@@ -227,6 +229,22 @@ def _session_start(
     return 0
 
 
+def _subagent_start(config: Config, stdout: TextIO) -> int:
+    """The same core rules for a sub-agent, which never sees SessionStart output.
+
+    Claude Code shows `additionalContext` from a SubagentStart hook to the new sub-agent. The rtk
+    notice is left out: it asks the user to act, and a sub-agent cannot.
+    """
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "SubagentStart",
+            "additionalContext": practices_text(PRACTICES_DIR, config.languages, config.unattended),
+        }
+    }
+    stdout.write(json.dumps(output) + "\n")
+    return 0
+
+
 def _guard_commit(config: Config, tool_input: Mapping[str, object], stderr: TextIO) -> int:
     command = tool_input.get("command")
     if config.allow_commits or config.unattended:
@@ -276,7 +294,7 @@ def main(
     which: Which = shutil.which,
 ) -> int:
     mode = argv[0] if argv else ""
-    if mode not in {"session-start", "format", "guard-commit"}:
+    if mode not in {"session-start", "subagent-start", "format", "guard-commit"}:
         stderr.write(f"cc-practices: unknown mode {mode!r}\n")
         return 1
     try:
@@ -292,6 +310,8 @@ def main(
 
     if mode == "session-start":
         return _session_start(config, project, env, stdout, which)
+    if mode == "subagent-start":
+        return _subagent_start(config, stdout)
     if mode == "guard-commit":
         return _guard_commit(config, tool_input, stderr)
     return _format(config, project, tool_input, stderr, runner or run_command)
