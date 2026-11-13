@@ -9,7 +9,7 @@ Done so far: unattended mode (`CC_PRACTICES_UNATTENDED`, 0.2.0), command compact
 hook (0.3.0), topic files with a byte cap (0.4.0), and the core rules for sub-agents through a
 `SubagentStart` hook (0.5.0), a commit guard that reads the config of the repo being committed
 to rather than the session folder's (0.5.1; quoted `-C` paths in 0.5.2), and the rest of the rules
-layer (0.6.0, below). Sub-agents never receive SessionStart output: none of 18 sub-agent transcripts
+layer (0.6.0, below), and the reviewer side of round 4 (0.7.0: sections 3 and 5). Sub-agents never receive SessionStart output: none of 18 sub-agent transcripts
 had it, including two in commitment-tracker-ai whose parent sessions did.
 
 ## 1. Rules layer (roadmap round 2): done
@@ -39,7 +39,7 @@ fakes fed recorded responses.
 *Done when*: `python.md` and `typescript.md` say so, with a short example of recording a response once
 and replaying it in a fake.
 
-## 3. Adversarial reviewer (roadmap round 4, review half)
+## 3. Adversarial reviewer (roadmap round 4, review half): done
 
 `code-reviewer` is cooperative: invoked by the author, told not to invent issues, gives no verdict.
 Marquardt's reviewer is independent, adversarial, read-only, and must approve at the PR's head commit.
@@ -49,7 +49,10 @@ Extend the existing agent rather than add a second one.
 - A verdict (approve or request changes) tied to the head commit SHA, in a form a CI check can read.
   The merge check itself belongs to fleet-kit.
 
-*Done when*: the reviewer can be run on a PR and leaves a verdict naming the head SHA.
+Done in 0.7.0: `code-reviewer` has an adversarial mode that ends in a `VERDICT:` line, and the `review-pr`
+skill runs it and posts the verdict through `skills/review-pr/post_verdict.py`, which refuses a PR that is red,
+a draft or whose head moved. The marker is pinned by a test here and in fleet-kit. Open: the reviewer and the
+author still share one GitHub token (see fleet-kit `docs/verdict.md`).
 
 ## 4. Prose rules to gates
 
@@ -64,12 +67,12 @@ time. Move each checkable rule into a gate that cites its incident.
 
 *Done when*: the templates enable the new ruff rules and the duplicate-sentence check runs in CI.
 
-## 5. Agent-ready issue template (roadmap round 4, issue half)
+## 5. Agent-ready issue template (roadmap round 4, issue half): done
 
 Unattended agents treat an issue with a *Done when* list as approval. Ship the issue template that
 produces one: problem, scope, out of scope, *Done when*.
 
-*Done when*: `templates/` has the issue template and the README explains how to install it.
+Done in 0.7.0: `templates/github/ISSUE_TEMPLATE/agent-ready.md`, installed as the README describes.
 
 ## Also open
 

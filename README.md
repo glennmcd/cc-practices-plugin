@@ -10,14 +10,15 @@ used locally and installed from a directory marketplace, not published.
 | --- | --- |
 | `practices/common/`, `practices/languages/` | Rules by topic; the `core` ones are added at session start (see [Rules](#rules)) |
 | `practices/unattended.md` | Rules that replace waiting for a person, added only in [unattended sessions](#unattended-sessions) |
-| `agents/code-reviewer`, `agents/security-auditor` | Read-only review agents, pinned to Sonnet |
+| `agents/code-reviewer`, `agents/security-auditor` | Read-only review agents, pinned to Sonnet; `code-reviewer` also has an adversarial mode |
+| `skills/review-pr` | Reviews a PR adversarially with an independent agent and posts a verdict tied to its head commit ([below](#review-a-pull-request)) |
 | `skills/tdd-change` | Align, failing test, implement, verify, docs |
 | `skills/verify` | Runs the project's configured lint, typecheck and test commands |
 | `skills/commit-message` | Conventional Commit message, type chosen by effect on users |
 | `skills/adr` | Numbered decision record in `docs/decisions/` |
 | `skills/sync-config` | Diffs a project's `cc-practices.json` against the current templates and proposes missing keys |
 | `hooks/` | Core rules at session start and to every sub-agent, format on edit with a pointer to the topic file that covers it, `git commit` guard, check that rtk's hook is installed |
-| `templates/` | Per-language `cc-practices.json`, Python CI, Dependabot, pyproject tool settings, import-layering test, code map, CLAUDE.md size test, handoff comment, `SECURITY.md` |
+| `templates/` | Per-language `cc-practices.json`, Python CI, Dependabot, pyproject tool settings, import-layering test, code map, CLAUDE.md size test, handoff comment, `SECURITY.md`, the agent-ready GitHub issue template |
 
 ## Install
 
@@ -128,6 +129,23 @@ rtk's hook returns the rewritten command with no permission decision, so it goes
 permission check and works unattended. rtk honours `deny` rules (a denied command is not rewritten), but an
 `ask` rule such as `Bash(git log:*)` no longer matches once the command reads `rtk git log`. Do not add an
 allow rule like `Bash(rtk:*)`: it would let any rewritten command through without a prompt.
+
+## Review a pull request
+
+`/review-pr` runs the `code-reviewer` agent in adversarial mode on a PR and posts its verdict as a comment
+that names the PR's head commit. It first checks that the PR is not a draft and that CI has finished and
+passed, gives the reviewer only the diff and the issue's *Done when* list, and refuses to post if a push
+landed in the meantime. The comment is read by fleet-kit's `reviewer-verdict` check (`docs/verdict.md` there),
+which a ruleset can require, so a PR cannot merge on an old approval. The helper is
+`skills/review-pr/post_verdict.py`; it needs the `gh` CLI signed in as an account listed in the check's
+`verdict.reviewers`.
+
+### Agent-ready issues
+
+Copy `templates/github/ISSUE_TEMPLATE/agent-ready.md` to the repository's `.github/ISSUE_TEMPLATE/`. It asks for
+the problem (what should happen, what happens now, what it costs), the scope, what is out of scope and a
+*Done when* checklist, so an unattended agent can start with no history and know when it is finished. Unattended
+agents treat that list as approval to start.
 
 ## Unattended sessions
 

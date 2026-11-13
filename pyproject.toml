@@ -18,7 +18,7 @@ default-groups = ["dev"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["hooks", "templates/python"]
+pythonpath = ["hooks", "templates/python", "skills/review-pr"]
 
 [tool.ruff]
 line-length = 100
@@ -33,5 +33,5 @@ ignore = ["S603"]
 
 [tool.mypy]
 strict = true
-files = ["hooks", "tests"]
-mypy_path = "hooks,templates/python"
+files = ["hooks", "tests", "skills/review-pr"]
+mypy_path = "hooks,templates/python,skills/review-pr"
