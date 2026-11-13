@@ -105,10 +105,10 @@ def test_wrongly_typed_fields_are_ignored(tmp_path: Path) -> None:
 PLUGIN_ROOT = Path(practices.__file__).resolve().parent.parent
 SHIPPED = PLUGIN_ROOT / "practices"
 # The session-start text in its largest case (common + one language + unattended) stays under
-# this. Lower it as rules move to topic files or gates; never raise it. Roadmap target: about 2 KB.
-SESSION_START_CAP_BYTES = 3_072
-# Room for the plugin folder path the header prints, which differs per machine.
-SHOWN_FOLDER = "x" * 100
+# this. Lower it as rules move to topic files or gates; never raise it.
+SESSION_START_CAP_BYTES = 2_048
+# Room for the plugin folder path the text prints, which differs per machine.
+SHOWN_ROOT = "x" * 90
 
 
 def rule(text: str, cls: str = "core") -> str:
@@ -121,7 +121,7 @@ def make_practices(folder: Path) -> Path:
         "common/docs.md": ["# Docs", rule("TOPIC TWO.", "topic")],
         "languages/python.md": ["# Python", rule("PYTHON CORE.")],
         "languages/typescript.md": ["# TypeScript", rule("TYPESCRIPT CORE.")],
-        "unattended.md": ["# Unattended", rule("UNATTENDED CORE.")],
+        "unattended.md": ["# Unattended", rule("UNATTENDED CORE."), rule("See `{plugin}/t.md`.")],
     }
     for name, lines in files.items():
         (folder / name).parent.mkdir(parents=True, exist_ok=True)
@@ -130,12 +130,13 @@ def make_practices(folder: Path) -> Path:
 
 
 def test_practices_text_prints_core_rules_without_markers(tmp_path: Path) -> None:
-    text = practices_text(make_practices(tmp_path), ["python"], shown_folder="PLUGIN")
+    text = practices_text(make_practices(tmp_path), ["python"], shown_root="PLUGIN")
     assert "## Testing\n- CORE ONE." in text
     assert "PYTHON CORE." in text
     assert "TOPIC ONE." not in text and "## Docs" not in text
     assert "{core" not in text
-    assert "under `PLUGIN`: common/docs.md, common/testing.md, languages/python.md." in text
+    names = "common/docs.md, common/testing.md, languages/python.md"
+    assert f"under `PLUGIN/{tmp_path.name}`: {names}." in text
 
 
 def test_practices_text_skips_other_and_unknown_languages(tmp_path: Path) -> None:
@@ -147,8 +148,15 @@ def test_unattended_rules_load_only_when_unattended(tmp_path: Path) -> None:
     folder = make_practices(tmp_path)
     assert "UNATTENDED CORE." not in practices_text(folder, [])
     text = practices_text(folder, [], unattended=True)
-    assert text.endswith("## Unattended\n- UNATTENDED CORE.")
+    assert "## Unattended\n- UNATTENDED CORE." in text
     assert "unattended.md" not in text.split("\n\n")[1]
+
+
+def test_plugin_placeholder_names_the_plugin_folder(tmp_path: Path) -> None:
+    folder = make_practices(tmp_path / "plugin" / "practices")
+    text = practices_text(folder, [], unattended=True)
+    assert f"See `{(tmp_path / 'plugin').as_posix()}/t.md`." in text
+    assert "See `ROOT/t.md`." in practices_text(folder, [], unattended=True, shown_root="ROOT")
 
 
 def test_read_topic_reports_rules_without_a_marker(tmp_path: Path) -> None:
@@ -182,7 +190,7 @@ def test_session_start_text_stays_under_the_cap() -> None:
     languages = sorted(path.stem for path in (SHIPPED / "languages").glob("*.md"))
     sizes = {
         (lang, unattended): len(
-            practices_text(SHIPPED, [lang], unattended, SHOWN_FOLDER).encode("utf-8")
+            practices_text(SHIPPED, [lang], unattended, SHOWN_ROOT).encode("utf-8")
         )
         for lang in languages
         for unattended in (False, True)

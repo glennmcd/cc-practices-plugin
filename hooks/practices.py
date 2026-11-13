@@ -80,8 +80,8 @@ RULE = re.compile(
 )
 HEADER = (
     "# Shared practices (cc-practices plugin)\n\n"
-    "The project's CLAUDE.md wins where it is narrower. These are the core rules; the rest are in "
-    "topic files under `{folder}`: {topics}. Read the topic your task touches before you start."
+    "The project's CLAUDE.md wins where it is narrower. Core rules follow; the rest are in topic "
+    "files under `{folder}`: {topics}. Read those your task touches first."
 )
 
 Runner = Callable[[list[str], Path], tuple[int, str]]
@@ -228,15 +228,22 @@ def topic_files(folder: Path, languages: list[str], unattended: bool = False) ->
 
 
 def practices_text(
-    folder: Path, languages: list[str], unattended: bool = False, shown_folder: str | None = None
+    folder: Path, languages: list[str], unattended: bool = False, shown_root: str | None = None
 ) -> str:
-    """The session-start text: a header naming the topic files, then each topic's core rules."""
+    """The session-start text: a header naming the topic files, then each topic's core rules.
+
+    `{plugin}` in a rule becomes the plugin folder (the parent of `folder`), so a rule can name a
+    template by its full path.
+    """
+    root = shown_root or folder.parent.as_posix()
     topics = [read_topic(path) for path in topic_files(folder, languages, unattended)]
     listed = [t for t in topics if t.path.stem != UNATTENDED_PRACTICES]
     names = ", ".join(t.path.relative_to(folder).as_posix() for t in listed)
-    parts = [HEADER.format(folder=shown_folder or folder.as_posix(), topics=names)]
+    parts = [HEADER.format(folder=f"{root}/{folder.name}", topics=names)]
     for topic in topics:
-        core = [f"- {rule.text}" for rule in topic.rules if rule.cls == "core"]
+        core = [
+            f"- {rule.text.replace('{plugin}', root)}" for rule in topic.rules if rule.cls == "core"
+        ]
         if core:
             parts.append("\n".join([f"## {topic.title}", *core]))
     return "\n\n".join(parts)
