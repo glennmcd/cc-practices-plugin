@@ -16,8 +16,8 @@ used locally and installed from a directory marketplace, not published.
 | `skills/commit-message` | Conventional Commit message, type chosen by effect on users |
 | `skills/adr` | Numbered decision record in `docs/decisions/` |
 | `skills/sync-config` | Diffs a project's `cc-practices.json` against the current templates and proposes missing keys |
-| `hooks/` | Core rules at session start and to every sub-agent, format on edit, `git commit` guard, check that rtk's hook is installed |
-| `templates/` | Per-language `cc-practices.json`, Python CI, Dependabot, pyproject tool settings, import-layering test, `SECURITY.md` |
+| `hooks/` | Core rules at session start and to every sub-agent, format on edit with a pointer to the topic file that covers it, `git commit` guard, check that rtk's hook is installed |
+| `templates/` | Per-language `cc-practices.json`, Python CI, Dependabot, pyproject tool settings, import-layering test, code map, CLAUDE.md size test, handoff comment, `SECURITY.md` |
 
 ## Install
 
@@ -64,6 +64,13 @@ Copy `templates/<language>/cc-practices.json` to the project's `.claude/cc-pract
   the session folder's config.
 Without the file, the plugin loads only the common practices, formats nothing and blocks agent commits.
 
+A Python project can also take, from `templates/python/`:
+
+- `pyproject-tools.toml`: ruff with the `S` security rules, minus `S603`, and minus `assert` and
+  password-name checks in tests;
+- `test_layout.py` and `test_claude_md.py` for `tests/`: package import rules, and a 4 KB cap on `CLAUDE.md`;
+- `code_map.py` for `scripts/`: writes `docs/CODE_MAP.md`, and `ci.yml` runs its `--check`.
+
 ## Rules
 
 Every session pays for the text loaded at its start on every model call, so that text holds only the core
@@ -77,16 +84,28 @@ one the same text as `additionalContext`. Each rule is one bullet in one topic f
 | Class | How the rule reaches the agent |
 | --- | --- |
 | `core` | Printed at session start and given to every sub-agent, without the marker |
-| `topic` | The agent reads the topic file when its task touches that topic; session start lists the files |
+| `topic` | The agent reads the topic file when its task touches that topic; session start lists the files, and an edit to one of the file's paths points to it |
 | `gate: <name>` | Enforced by the named check, whose failure message names the rule |
 | `review` | Checked in review |
 
 The source is the incident behind the rule, as `#12` or `owner/repo#12`; rules from before incidents were
 tracked say `initial`. Move a rule to a gate when it can be checked, and out of `core` when it is rarely
-needed. Tests enforce the layer:
+needed. `{plugin}` in a rule becomes the plugin's folder, so a rule can name a template by its full path.
+
+A topic file may list the paths it covers on its second line:
+
+```markdown
+<!-- paths: tests/**, **/test_*.py, **/conftest.py -->
+```
+
+The first time in a session that Claude edits a matching file, the format hook tells it to read that topic
+file. `**/` matches any number of folders and `*` stays within one. The hook remembers which files it has
+pointed to in a small per-session file in the system temp folder.
+
+Tests enforce the layer:
 
 - every bullet in `practices/` has a valid class and source;
-- the session-start text stays under 3,072 bytes in its largest case (common, one language, unattended), a
+- the session-start text stays under 2,048 bytes in its largest case (common, one language, unattended), a
   cap that is only ever lowered;
 - no sentence of 20 or more words appears twice across the practice files, skills and agents.
 
@@ -118,7 +137,8 @@ and an agent clone of the same repository share it. Export it where the agents a
 processes inherit it. When it is set:
 
 - The rules in `practices/unattended.md` are added at session start: an issue with a *Done when* list counts as approval,
-  and anything that needs the owner becomes a handoff comment on the issue or PR, after which the agent ends.
+  and anything that needs the owner becomes a handoff comment on the issue or PR, in the form of
+  `templates/handoff.md`, after which the agent ends.
 - `git commit` is allowed whatever `allowAgentCommits` says. Without this, a sub-agent that
   fleet-kit's context ceiling tells to commit and hand off could do neither.
 
