@@ -57,13 +57,15 @@ RTK_HOOK_MISSING = (
     "compacted. Tell the user to run `rtk init -g --auto-patch` and restart the session."
 )
 
+# An option value: quoted (spaces allowed), or bare with quoted parts (`user.name="A B"`).
+_VALUE = r"""(?:"[^"]*"|'[^']*'|(?:[^\s"']|"[^"]*"|'[^']*')+)"""
 # `git`, any global options (`-C dir`, `-c key=value`, `--no-pager`), then `commit`/`commit-tree`.
 GIT_COMMIT = re.compile(
     r"(?:^|[\s;&|(/\\])git(?:\.exe)?"
-    r"(?:\s+(?:-C\s+\S+|-c\s+\S+|--?[\w-]+(?:=\S+)?))*"
+    rf"(?:\s+(?:-C\s+{_VALUE}|-c\s+{_VALUE}|--?[\w-]+(?:={_VALUE})?))*"
     r"\s+commit(?:-tree)?(?=$|[\s;&|)])"
 )
-GIT_C_OPTION = re.compile(r"\s-C\s+(\S+)")
+GIT_C_OPTION = re.compile(rf"\s-C\s+({_VALUE})")
 # `cd`, `pushd`, `Set-Location` or `sl` at the start of a command, then a quoted or bare folder.
 CHANGE_DIR = re.compile(
     r"(?:^|[;&|(\n])\s*(?:cd|pushd|chdir|set-location|sl)\s+"

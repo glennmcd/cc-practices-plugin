@@ -27,6 +27,9 @@ from practices import Config, is_git_commit, load_config, main, practices_text
         "git.exe commit -m x",
         "git commit-tree HEAD^{tree}",
         "(git commit -m x)",
+        'git -C "my repo" commit -m x',
+        "git -C 'my repo' commit -m x",
+        'git -c user.name="A B" commit -m x',
     ],
 )
 def test_detects_git_commit(command: str) -> None:
@@ -313,6 +316,8 @@ def test_guard_reads_the_repo_above_a_subfolder(tmp_path: Path) -> None:
     "command",
     [
         "git -C repo commit -m x",
+        'git -C "my repo" commit -m x',
+        "git -C 'my repo' commit -m x",
         "cd repo && git commit -m x",
         "cd repo; git add -A; git commit -m x",
         "(cd repo && git commit -m x)",
@@ -352,6 +357,7 @@ def test_guard_blocks_when_any_commit_is_blocked(tmp_path: Path) -> None:
     make_repo(tmp_path / "a", allow=True)
     make_repo(tmp_path / "b")
     assert guard("git -C a commit -m x && git -C b commit -m y", tmp_path)[0] == 2
+    assert guard('git -C "b" commit -m y', tmp_path)[0] == 2
     assert guard("git -C a commit -m x && cd a && git commit -m y", tmp_path)[0] == 0
 
 
