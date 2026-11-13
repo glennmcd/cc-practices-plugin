@@ -278,6 +278,108 @@ def test_guard_reads_powershell_commands(tmp_path: Path) -> None:
     assert run("guard-commit", payload, tmp_path)[0] == 2
 
 
+# --- guard-commit reads the config of the repo being committed to --------------------------------
+
+
+def make_repo(path: Path, allow: bool | None = None, git_file: bool = False) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    if git_file:  # a worktree has a `.git` file pointing at the main repo
+        (path / ".git").write_text("gitdir: ../main/.git/worktrees/x\n", encoding="utf-8")
+    else:
+        (path / ".git").mkdir()
+    if allow is not None:
+        write_config(path, {"allowAgentCommits": allow})
+    return path
+
+
+def guard(command: str, project: Path, cwd: Path | None = None) -> tuple[int, str]:
+    payload: dict[str, object] = {**bash(command), "cwd": str(cwd or project)}
+    code, _, err = run("guard-commit", payload, project)
+    return code, err
+
+
+def test_guard_reads_the_repo_of_the_shell_folder(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path / "repo", allow=True)
+    assert guard("git commit -m x", tmp_path, cwd=repo)[0] == 0
+
+
+def test_guard_reads_the_repo_above_a_subfolder(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path / "repo", allow=True)
+    (repo / "src").mkdir()
+    assert guard("git commit -m x", tmp_path, cwd=repo / "src")[0] == 0
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git -C repo commit -m x",
+        "cd repo && git commit -m x",
+        "cd repo; git add -A; git commit -m x",
+        "(cd repo && git commit -m x)",
+        "Set-Location repo; git commit -m x",
+        "Set-Location -Path repo; git commit -m x",
+        "cd 'my repo' && git commit -m x",
+        'cd "my repo" && git commit -m x',
+    ],
+)
+def test_guard_follows_cd_and_git_c(tmp_path: Path, command: str) -> None:
+    make_repo(tmp_path / "repo", allow=True)
+    make_repo(tmp_path / "my repo", allow=True)
+    assert guard(command, tmp_path)[0] == 0
+
+
+def test_guard_resolves_cd_from_the_shell_folder(tmp_path: Path) -> None:
+    make_repo(tmp_path / "a" / "repo", allow=True)
+    assert guard("cd repo && git commit -m x", tmp_path, cwd=tmp_path / "a")[0] == 0
+
+
+def test_guard_falls_back_to_the_session_config(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path / "repo")
+    assert guard("git commit -m x", tmp_path, cwd=repo)[0] == 2
+    write_config(tmp_path, {"allowAgentCommits": True})
+    assert guard("git commit -m x", tmp_path, cwd=repo)[0] == 0
+
+
+def test_guard_repo_config_overrides_the_session_config(tmp_path: Path) -> None:
+    write_config(tmp_path, {"allowAgentCommits": True})
+    repo = make_repo(tmp_path / "repo", allow=False)
+    code, err = guard("git commit -m x", tmp_path, cwd=repo)
+    assert code == 2
+    assert str(repo / ".claude" / "cc-practices.json") in err
+
+
+def test_guard_blocks_when_any_commit_is_blocked(tmp_path: Path) -> None:
+    make_repo(tmp_path / "a", allow=True)
+    make_repo(tmp_path / "b")
+    assert guard("git -C a commit -m x && git -C b commit -m y", tmp_path)[0] == 2
+    assert guard("git -C a commit -m x && cd a && git commit -m y", tmp_path)[0] == 0
+
+
+def test_guard_reads_a_worktree(tmp_path: Path) -> None:
+    tree = make_repo(tmp_path / "tree", allow=True, git_file=True)
+    assert guard("git commit -m x", tmp_path, cwd=tree)[0] == 0
+
+
+def test_guard_ignores_cd_to_a_variable(tmp_path: Path) -> None:
+    make_repo(tmp_path / "repo", allow=True)
+    assert guard('cd "$REPO" && git commit -m x', tmp_path)[0] == 2
+    assert guard("git commit -m x", tmp_path, cwd=tmp_path / "repo")[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("text", "windows", "expected"),
+    [
+        ("/c/Users/me", True, "C:/Users/me"),
+        ("/d", True, "D:/"),
+        ("/c/Users/me", False, "/c/Users/me"),
+        ("repo", True, "repo"),
+        ("/usr/lib", True, "/usr/lib"),
+    ],
+)
+def test_native_path_converts_git_bash_drives(text: str, windows: bool, expected: str) -> None:
+    assert practices.native_path(text, windows) == expected
+
+
 def test_session_start_prints_practices(tmp_path: Path) -> None:
     write_config(tmp_path, {"languages": ["python"]})
     code, out, _ = run("session-start", {"hook_event_name": "SessionStart"}, tmp_path)

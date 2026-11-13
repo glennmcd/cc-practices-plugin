@@ -10,7 +10,8 @@
   subagent-start gives each sub-agent the same core rules as JSON `additionalContext`, since
                  sub-agents never receive SessionStart output
   format         after Edit/Write, runs the project's formatter on the edited file
-  guard-commit   before Bash/PowerShell, blocks `git commit` unless the project allows agent commits
+  guard-commit   before Bash/PowerShell, blocks `git commit` unless agent commits are allowed by the
+                 config of the repo it runs in (following `cd` and `git -C`), else of the session
 
 Compacting command output is left to rtk's own hook (`rtk init -g`), which runs on every call:
 a gate rather than a rule. This script only checks that the hook is there; it never edits the
@@ -62,6 +63,14 @@ GIT_COMMIT = re.compile(
     r"(?:\s+(?:-C\s+\S+|-c\s+\S+|--?[\w-]+(?:=\S+)?))*"
     r"\s+commit(?:-tree)?(?=$|[\s;&|)])"
 )
+GIT_C_OPTION = re.compile(r"\s-C\s+(\S+)")
+# `cd`, `pushd`, `Set-Location` or `sl` at the start of a command, then a quoted or bare folder.
+CHANGE_DIR = re.compile(
+    r"(?:^|[;&|(\n])\s*(?:cd|pushd|chdir|set-location|sl)\s+"
+    r"(?:-(?:literal)?path\s+)?(?P<dir>\"[^\"]*\"|'[^']*'|[^\s;&|)]+)",
+    re.IGNORECASE,
+)
+GIT_BASH_DRIVE = re.compile(r"^/([a-zA-Z])(?:/|$)")
 LANGUAGE_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 RULE = re.compile(
     r"^- (?P<text>.+?)\s+\{(?P<cls>core|topic|review|gate: [^;{}]+);\s*"
@@ -119,6 +128,57 @@ def load_config(project: Path) -> Config:
 
 def is_git_commit(command: str) -> bool:
     return GIT_COMMIT.search(command) is not None
+
+
+def native_path(text: str, windows: bool = os.name == "nt") -> str:
+    """Turn a Git Bash drive path (`/c/Users`) into a Windows one (`C:/Users`)."""
+    drive = GIT_BASH_DRIVE.match(text) if windows else None
+    if drive is None:
+        return text
+    return f"{drive.group(1).upper()}:/{text[drive.end() :]}"
+
+
+def _step(folder: Path | None, target: str) -> Path | None:
+    """The folder after changing to `target` from `folder`; None once it can't be known."""
+    target = target.strip("\"'")
+    if folder is None or not target or any(char in target for char in "$`%"):
+        return None
+    return folder / Path(native_path(target)).expanduser()
+
+
+def commit_folders(command: str, cwd: Path) -> list[Path | None]:
+    """The folder each `git commit` in `command` runs in, following `cd` and `git -C`.
+
+    None marks a commit whose folder depends on a variable or substitution.
+    """
+    events = [(m.start(), "cd", m) for m in CHANGE_DIR.finditer(command)]
+    events += [(m.start(), "commit", m) for m in GIT_COMMIT.finditer(command)]
+    folder: Path | None = cwd
+    folders: list[Path | None] = []
+    for _, kind, match in sorted(events, key=lambda event: event[0]):
+        if kind == "cd":
+            folder = _step(folder, match.group("dir"))
+            continue
+        target = folder
+        for option in GIT_C_OPTION.findall(match.group()):
+            target = _step(target, option)
+        folders.append(target)
+    return folders
+
+
+def find_repo(folder: Path) -> Path | None:
+    for candidate in [folder, *folder.parents]:
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def commit_config(folder: Path | None, project: Path) -> tuple[Config, Path]:
+    """The config that decides a commit in `folder`: its repo's, else the session folder's."""
+    repo = find_repo(folder) if folder is not None else None
+    if repo is not None and (repo / CONFIG_PATH).is_file():
+        return load_config(repo), repo / CONFIG_PATH
+    return load_config(project), project / CONFIG_PATH
 
 
 @dataclass(frozen=True)
@@ -245,18 +305,23 @@ def _subagent_start(config: Config, stdout: TextIO) -> int:
     return 0
 
 
-def _guard_commit(config: Config, tool_input: Mapping[str, object], stderr: TextIO) -> int:
+def _guard_commit(
+    config: Config, project: Path, cwd: Path, tool_input: Mapping[str, object], stderr: TextIO
+) -> int:
     command = tool_input.get("command")
-    if config.allow_commits or config.unattended:
+    if config.unattended or not isinstance(command, str):
         return 0
-    if not isinstance(command, str) or not is_git_commit(command):
-        return 0
-    stderr.write(
-        "cc-practices: agent commits are blocked in this project. Leave the commit to the user "
-        'and suggest a Conventional Commit message instead, or set "allowAgentCommits": true '
-        f"in {CONFIG_PATH.as_posix()}.\n"
-    )
-    return 2
+    for folder in commit_folders(command, cwd):
+        decider, path = commit_config(folder, project)
+        if decider.allow_commits:
+            continue
+        stderr.write(
+            "cc-practices: agent commits are blocked in this repo. Leave the commit to the user "
+            'and suggest a Conventional Commit message instead, or set "allowAgentCommits": true '
+            f"in {path}.\n"
+        )
+        return 2
+    return 0
 
 
 def _format(
@@ -313,7 +378,8 @@ def main(
     if mode == "subagent-start":
         return _subagent_start(config, stdout)
     if mode == "guard-commit":
-        return _guard_commit(config, tool_input, stderr)
+        cwd = Path(str(payload.get("cwd") or project))
+        return _guard_commit(config, project, cwd, tool_input, stderr)
     return _format(config, project, tool_input, stderr, runner or run_command)
 
 

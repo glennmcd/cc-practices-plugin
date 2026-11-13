@@ -57,7 +57,11 @@ Copy `templates/<language>/cc-practices.json` to the project's `.claude/cc-pract
 - `checks` is read by the `verify` skill. Use quiet, failures-only flags: the skill reruns a single failing
   check in detail when it needs more.
 - `allowAgentCommits` defaults to `false`: the `PreToolUse` hook blocks `git commit` (Bash or PowerShell, with or
-  without `-C`/`-c` options) and asks for a suggested message instead.
+  without `-C`/`-c` options) and asks for a suggested message instead. The hook reads the setting from the repo
+  the commit runs in, found from the shell's folder, any `cd`, `Set-Location` or `pushd` earlier in the command,
+  and `git -C`. A repo without a config uses the one in the folder the session was opened in, so a session over
+  several repos follows each repo's own setting. A folder given by a variable can't be followed and also uses
+  the session folder's config.
 Without the file, the plugin loads only the common practices, formats nothing and blocks agent commits.
 
 ## Rules

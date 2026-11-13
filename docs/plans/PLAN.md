@@ -7,7 +7,8 @@ Its plan is `fleet-kit/docs/plans/PLAN.md`.
 
 Done so far: unattended mode (`CC_PRACTICES_UNATTENDED`, 0.2.0), command compaction left to rtk's own
 hook (0.3.0), topic files with a byte cap (0.4.0), and the core rules for sub-agents through a
-`SubagentStart` hook (0.5.0). Sub-agents never receive SessionStart output: none of 18 sub-agent
+`SubagentStart` hook (0.5.0), and a commit guard that reads the config of the repo being
+committed to rather than the session folder's (0.5.1). Sub-agents never receive SessionStart output: none of 18 sub-agent
 transcripts had it, including two in commitment-tracker-ai whose parent sessions did.
 
 ## 1. Rules layer (roadmap round 2)
