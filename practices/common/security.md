@@ -1,4 +1,5 @@
 # Secrets and untrusted input
+<!-- paths: .env*, **/*auth*, **/*auth*/**, **/*secret* -->
 
 - Secrets come from the environment or a secret store, never from code, committed config or logs. {core; initial}
 - Error messages name a missing variable, never its value; never log tokens, full request headers or user content the project marks private. {topic; initial}

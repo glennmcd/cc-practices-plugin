@@ -1,4 +1,5 @@
 # TypeScript
+<!-- paths: **/package.json, biome.json, **/tsconfig*.json -->
 
 - Use `bun` and `bunx`, not npm, yarn or direct `node`, unless the project pins another tool; commit `bun.lock`, and CI runs `bun install --frozen-lockfile`. {core; initial}
 - Biome for lint, format and import order (`biome ci .` fails on any diff; `biome check --write .` fixes). `tsc --noEmit` per package for types. {topic; initial}

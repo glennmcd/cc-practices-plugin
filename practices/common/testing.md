@@ -1,4 +1,5 @@
 # Testing and checks
+<!-- paths: tests/**, **/test_*.py, **/*_test.py, **/*.test.ts, **/*.test.tsx, **/conftest.py -->
 
 - Write the failing test first where practical and confirm it fails for the right reason; new functions, routes and rules ship with their tests, failure paths included. {core; initial}
 - Tests never touch the network or a hosted service: use fakes behind adapter interfaces, HTTP mocks or in-memory databases. {core; initial}

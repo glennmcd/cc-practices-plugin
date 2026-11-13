@@ -251,6 +251,7 @@ def run(
     runner: practices.Runner | None = None,
     env: Mapping[str, str] | None = None,
     which: practices.Which = lambda _name: None,
+    state_dir: Path | None = None,
 ) -> tuple[int, str, str]:
     out, err = io.StringIO(), io.StringIO()
     code = main(
@@ -261,6 +262,7 @@ def run(
         env={"CLAUDE_PROJECT_DIR": str(project), **(env or {})},
         runner=runner,
         which=which,
+        state_dir=state_dir or project / ".pointer-state",
     )
     return code, out.getvalue(), err.getvalue()
 
@@ -499,6 +501,92 @@ def test_format_skips_quietly_when_tool_is_missing(tmp_path: Path) -> None:
     code, _, err = run("format", edit(str(tmp_path / "a.py")), tmp_path, FakeRunner(missing=True))
     assert code == 0
     assert err == ""
+
+
+# --- pointers to topic files after an edit -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("pattern", "path", "expected"),
+    [
+        ("tests/**", "tests/a/test_b.py", True),
+        ("tests/**", "src/tests.py", False),
+        ("**/test_*.py", "test_a.py", True),
+        ("**/test_*.py", "src/pkg/test_a.py", True),
+        ("**/test_*.py", "src/pkg/a_test.py", False),
+        ("pyproject.toml", "pyproject.toml", True),
+        ("pyproject.toml", "sub/pyproject.toml", False),
+        (".github/workflows/**", ".github/workflows/ci.yml", True),
+        ("*.md", "docs/a.md", False),
+    ],
+)
+def test_glob_match(pattern: str, path: str, expected: bool) -> None:
+    assert practices.glob_match(pattern, path) is expected
+
+
+def test_read_topic_reads_the_paths_comment(tmp_path: Path) -> None:
+    path = tmp_path / "t.md"
+    path.write_text("# T\n<!-- paths: tests/**, **/test_*.py -->\n" + rule("A."), "utf-8")
+    topic = practices.read_topic(path)
+    assert topic.paths == ["tests/**", "**/test_*.py"]
+    assert topic.problems == []
+
+
+def pointer(
+    project: Path,
+    file: str,
+    session: str = "s1",
+    runner: practices.Runner | None = None,
+    state_dir: Path | None = None,
+) -> tuple[int, str]:
+    payload = {**edit(str(project / file)), "session_id": session}
+    code, out, err = run("format", payload, project, runner=runner, state_dir=state_dir)
+    if out:
+        context = json.loads(out)["hookSpecificOutput"]
+        assert context["hookEventName"] == "PostToolUse"
+        return code, context["additionalContext"]
+    return code, err
+
+
+def test_edit_points_to_the_matching_topic_once_per_session(tmp_path: Path) -> None:
+    code, text = pointer(tmp_path, "tests/test_a.py")
+    assert code == 0
+    assert "practices/common/testing.md" in text
+    assert pointer(tmp_path, "tests/test_b.py") == (0, "")
+    assert "testing.md" in pointer(tmp_path, "tests/test_a.py", session="s2")[1]
+
+
+def test_edit_points_to_language_topics_only_when_configured(tmp_path: Path) -> None:
+    assert pointer(tmp_path, "pyproject.toml") == (0, "")
+    write_config(tmp_path, {"languages": ["python"]})
+    assert "languages/python.md" in pointer(tmp_path, "pyproject.toml", session="s2")[1]
+
+
+def test_edit_outside_the_project_points_nowhere(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    payload = {**edit(str(tmp_path / "tests" / "test_a.py")), "session_id": "s1"}
+    assert run("format", payload, project)[1] == ""
+
+
+def test_pointer_rides_along_with_a_formatter_failure(tmp_path: Path) -> None:
+    python_config(tmp_path)
+    runner = FakeRunner(returncode=1, output="error: invalid syntax")
+    code, err = pointer(tmp_path, "tests/test_a.py", runner=runner)
+    assert code == 2
+    assert "invalid syntax" in err and "testing.md" in err
+
+
+def test_pointer_without_writable_state_still_points(tmp_path: Path) -> None:
+    blocker = tmp_path / "state-is-a-file"
+    blocker.write_text("", encoding="utf-8")
+    assert "testing.md" in pointer(tmp_path, "tests/test_a.py", state_dir=blocker)[1]
+
+
+def test_every_shipped_pointer_names_an_existing_kind_of_path() -> None:
+    pointed = {t.path.name: t.paths for t in map(practices.read_topic, shipped_topics())}
+    assert pointed["testing.md"] and pointed["delivery.md"] and pointed["python.md"]
+    assert pointed["unattended.md"] == []
 
 
 def test_unknown_mode_is_an_error(tmp_path: Path) -> None:

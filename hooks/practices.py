@@ -9,7 +9,9 @@
                  its Claude Code hook is not
   subagent-start gives each sub-agent the same core rules as JSON `additionalContext`, since
                  sub-agents never receive SessionStart output
-  format         after Edit/Write, runs the project's formatter on the edited file
+  format         after Edit/Write, runs the project's formatter on the edited file, and the first
+                 time in a session that an edit matches a topic file's `<!-- paths: -->` line,
+                 tells Claude to read that topic file
   guard-commit   before Bash/PowerShell, blocks `git commit` unless agent commits are allowed by the
                  config of the repo it runs in (following `cd` and `git -C`), else of the session
 
@@ -40,6 +42,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -73,6 +76,8 @@ CHANGE_DIR = re.compile(
     re.IGNORECASE,
 )
 GIT_BASH_DRIVE = re.compile(r"^/([a-zA-Z])(?:/|$)")
+PATHS_COMMENT = re.compile(r"^<!--\s*paths:\s*(?P<paths>.*?)\s*-->\s*$")
+SESSION_ID = re.compile(r"^[\w-]{1,128}$")
 LANGUAGE_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 RULE = re.compile(
     r"^- (?P<text>.+?)\s+\{(?P<cls>core|topic|review|gate: [^;{}]+);\s*"
@@ -196,13 +201,18 @@ class Topic:
     title: str
     rules: list[Rule]
     problems: list[str]
+    paths: list[str] = field(default_factory=list)
 
 
 def read_topic(path: Path) -> Topic:
-    """A topic file: a `# Title` line and one bullet per rule. Other bullets are problems."""
-    title, rules, problems = path.stem, [], []
+    """A topic file: a `# Title` line, an optional `<!-- paths: ... -->` line and one bullet per
+    rule. Other lines are problems."""
+    title, rules, problems, paths = path.stem, [], [], []
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if line.startswith("# "):
+        comment = PATHS_COMMENT.match(line)
+        if comment:
+            paths = [p.strip() for p in comment["paths"].split(",") if p.strip()]
+        elif line.startswith("# "):
             title = line[2:].strip()
         elif line.startswith("- "):
             match = RULE.match(line)
@@ -212,7 +222,17 @@ def read_topic(path: Path) -> Topic:
                 problems.append(f"{path.name}:{number}: rule has no {{class; source}} marker")
         elif line.strip():
             problems.append(f"{path.name}:{number}: only a title and rule bullets are allowed")
-    return Topic(path, title, rules, problems)
+    return Topic(path, title, rules, problems, paths)
+
+
+def glob_match(pattern: str, path: str) -> bool:
+    """Match a project-relative POSIX path: `**/` is any number of folders, `*` stays in one."""
+    regex = ""
+    for part in re.split(r"(\*\*/|\*\*|\*|\?)", pattern):
+        regex += {"**/": "(?:.*/)?", "**": ".*", "*": "[^/]*", "?": "[^/]"}.get(
+            part, re.escape(part)
+        )
+    return re.fullmatch(regex, path) is not None
 
 
 def topic_files(folder: Path, languages: list[str], unattended: bool = False) -> list[Path]:
@@ -333,29 +353,92 @@ def _guard_commit(
     return 0
 
 
-def _format(
-    config: Config, project: Path, tool_input: Mapping[str, object], stderr: TextIO, runner: Runner
-) -> int:
-    file_path = tool_input.get("file_path")
-    if not config.format_command or not isinstance(file_path, str):
-        return 0
+def _format(config: Config, project: Path, file_path: str, runner: Runner) -> str | None:
+    """Run the project's formatter on an edited file; the failure message, or None."""
     target = Path(file_path).resolve()
-    if target.suffix not in config.format_extensions or not target.is_relative_to(
-        project.resolve()
+    if (
+        not config.format_command
+        or target.suffix not in config.format_extensions
+        or not target.is_relative_to(project.resolve())
     ):
-        return 0
+        return None
     args = [arg.replace("{file}", str(file_path)) for arg in config.format_command]
     try:
         code, output = runner(args, project)
     except FileNotFoundError:
-        return 0  # the formatter is not installed (yet); nothing to report
+        return None  # the formatter is not installed (yet); nothing to report
     except subprocess.TimeoutExpired:
-        stderr.write(f"cc-practices: formatter timed out after {FORMAT_TIMEOUT_SECONDS}s\n")
-        return 2
-    if code == 0:
+        return f"cc-practices: formatter timed out after {FORMAT_TIMEOUT_SECONDS}s"
+    return None if code == 0 else f"cc-practices: formatter failed on {file_path}:\n{output}"
+
+
+def _pointed(state_dir: Path, session: str, topics: list[str] | None = None) -> list[str]:
+    """The topic files this session was already pointed to; with `topics`, record those too."""
+    path = state_dir / f"pointed-{session}.json"
+    try:
+        seen = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        seen = []
+    seen = [name for name in seen if isinstance(name, str)] if isinstance(seen, list) else []
+    if topics:
+        try:
+            state_dir.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(seen + topics), encoding="utf-8")
+        except OSError:
+            pass  # without state the pointer repeats; it never blocks the edit
+    return seen
+
+
+def topic_pointers(
+    config: Config, project: Path, file_path: str, session: str, state_dir: Path
+) -> str:
+    """A note naming the topic files whose paths match an edited file, once per session."""
+    target = Path(file_path).resolve()
+    if not target.is_relative_to(project.resolve()):
+        return ""
+    relative = target.relative_to(project.resolve()).as_posix()
+    known = SESSION_ID.match(session) is not None
+    seen = _pointed(state_dir, session) if known else []
+    notes, names = [], []
+    for path in topic_files(PRACTICES_DIR, config.languages):
+        topic = read_topic(path)
+        name = path.relative_to(PRACTICES_DIR).as_posix()
+        if name in seen or not any(glob_match(p, relative) for p in topic.paths):
+            continue
+        names.append(name)
+        notes.append(
+            f"cc-practices: `{relative}` is covered by {topic.title}; read "
+            f"`{path.as_posix()}` before you go on."
+        )
+    if names and known:
+        _pointed(state_dir, session, names)
+    return "\n".join(notes)
+
+
+def _post_edit(
+    config: Config,
+    project: Path,
+    payload: Mapping[str, object],
+    tool_input: Mapping[str, object],
+    streams: tuple[TextIO, TextIO],
+    runner: Runner,
+    state_dir: Path,
+) -> int:
+    """After an edit: format the file, and point to the topic files that cover it."""
+    stdout, stderr = streams
+    file_path = tool_input.get("file_path")
+    if not isinstance(file_path, str):
         return 0
-    stderr.write(f"cc-practices: formatter failed on {file_path}:\n{output}\n")
-    return 2
+    session = str(payload.get("session_id") or "")
+    notes = topic_pointers(config, project, file_path, session, state_dir)
+    failure = _format(config, project, file_path, runner)
+    if failure:
+        stderr.write("\n".join(filter(None, [failure, notes])) + "\n")
+        return 2
+    if notes:
+        context = {"hookEventName": "PostToolUse", "additionalContext": notes}
+        stdout.write(json.dumps({"hookSpecificOutput": context}) + "\n")
+    return 0
 
 
 def main(
@@ -366,6 +449,7 @@ def main(
     env: Mapping[str, str] = os.environ,
     runner: Runner | None = None,
     which: Which = shutil.which,
+    state_dir: Path | None = None,
 ) -> int:
     mode = argv[0] if argv else ""
     if mode not in {"session-start", "subagent-start", "format", "guard-commit"}:
@@ -389,7 +473,15 @@ def main(
     if mode == "guard-commit":
         cwd = Path(str(payload.get("cwd") or project))
         return _guard_commit(config, project, cwd, tool_input, stderr)
-    return _format(config, project, tool_input, stderr, runner or run_command)
+    return _post_edit(
+        config,
+        project,
+        payload,
+        tool_input,
+        (stdout, stderr),
+        runner or run_command,
+        state_dir or Path(tempfile.gettempdir()) / "cc-practices",
+    )
 
 
 if __name__ == "__main__":

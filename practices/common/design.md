@@ -1,4 +1,5 @@
 # Code structure
+<!-- paths: **/openapi.json, **/openapi.yaml -->
 
 - Keep framework glue thin: logic lives in plain modules that can be tested without the framework; routes, DAGs and handlers only wire things together. {topic; initial}
 - Put external services (models, CI hosts, storage) behind an interface with one real adapter, so tests pass a fake and swapping providers is configuration. {topic; initial}

@@ -1,4 +1,5 @@
 # Commits, CI and releases
+<!-- paths: .github/workflows/**, .github/dependabot.yml, CHANGELOG.md -->
 
 - Commit messages and PR titles use Conventional Commits, typed by what changes for users (the `commit-message` skill). {core; initial}
 - Commit only when the project sets `allowAgentCommits` or the session is unattended; otherwise suggest the message. {gate: guard-commit; initial}
