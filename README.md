@@ -68,7 +68,7 @@ Without the file, the plugin loads only the common practices, formats nothing an
 A Python project can also take, from `templates/python/`:
 
 - `pyproject-tools.toml`: ruff with the `S` security rules, minus `S603`, and minus `assert` and
-  password-name checks in tests;
+  password-name checks in tests; and `T20` (no `print`), except in `scripts/`;
 - `test_layout.py` and `test_claude_md.py` for `tests/`: package import rules, and a 4 KB cap on `CLAUDE.md`;
 - `code_map.py` for `scripts/`: writes `docs/CODE_MAP.md`, and `ci.yml` runs its `--check`.
 

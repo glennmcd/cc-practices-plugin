@@ -31,13 +31,13 @@ Done in 0.4.0 and 0.6.0:
 Ongoing: replace `initial` sources with incident numbers as incidents happen. commitment-tracker-ai's
 CLAUDE.md (8,690 bytes) fails the new cap when it adopts the template.
 
-## 2. Tests from recorded responses
+## 2. Tests from recorded responses: done
 
-cc-practices says fakes and HTTP mocks; Marquardt says recorded real responses as fixtures. Reconcile as
+cc-practices says fakes and HTTP mocks; Marquardt says recorded real responses as fixtures. Reconciled as
 fakes fed recorded responses.
 
-*Done when*: `python.md` and `typescript.md` say so, with a short example of recording a response once
-and replaying it in a fake.
+Done in 0.8.0: the rule is in `testing.md`, `python.md` and `typescript.md` name it for their fakes, and
+`docs/recorded-responses.md` has the steps and an example in each language.
 
 ## 3. Adversarial reviewer (roadmap round 4, review half): done
 
@@ -55,7 +55,7 @@ a draft or whose head moved. The marker is pinned by a test here and in fleet-ki
 account (`g26work`); on fleet-kit's review slots `post_verdict.py` refuses to post as any other account
 (`FLEET_REVIEWER_LOGIN`), and the skill has an unattended path.
 
-## 4. Prose rules to gates
+## 4. Prose rules to gates: done
 
 Most rules are prose, which is followed most of the time; a hook, test or CI gate is followed every
 time. Move each checkable rule into a gate that cites its incident.
@@ -63,10 +63,11 @@ time. Move each checkable rule into a gate that cites its incident.
 - Done in 0.6.0: ruff `S` in the Python template, minus `S603` everywhere and `S101`/`S105`/`S106`
   in tests. On four repos, 98% of the 1,623 `S` findings were test asserts; the rest is a one-off
   cleanup per repo (flakehunter-airflow has 9 real `S314` XML findings).
-- Candidates left: ruff `T20` (no `print`); running the duplicate-sentence check in CI.
-- Each gate is listed next to the rule it replaces, and the prose rule is removed.
-
-*Done when*: the templates enable the new ruff rules and the duplicate-sentence check runs in CI.
+- Done in 0.8.0: ruff `T20` (no `print`) in the Python template, except in `scripts/`; the `print` rule in
+  `python.md` is now `gate: ruff T20`. This repo has a CI workflow (`.github/workflows/tests.yml`: ruff, mypy,
+  pytest), so the duplicate-sentence check runs on every push. This repo does not turn on `T20` for itself: its
+  hooks and scripts talk to Claude Code through `print`.
+- Each gate is listed next to the rule it covers.
 
 ## 5. Agent-ready issue template (roadmap round 4, issue half): done
 
@@ -77,8 +78,11 @@ Done in 0.7.0: `templates/github/ISSUE_TEMPLATE/agent-ready.md`, installed as th
 
 ## Also open
 
-- Hook cost: with fleet-kit installed, each Bash call starts three `uv run --script` processes. Consider
-  one dispatcher process for both plugins' Bash hooks, or a faster runner.
-- Confirm in a live session that a sub-agent's transcript shows the `SubagentStart` context
-  (`first_context.py --project <name> --subagent` in fleet-kit). If read-only agents (Explore,
-  code-reviewer) don't need the rules, match the hook to the agent types that write code.
+- Hook cost: measured on the fleet machine (2026-11-14). `practices.py guard-commit` takes 79 ms under
+  `uv run --script`, and fleet-kit's four hooks take 70 ms together when started in parallel. No dispatcher
+  for a fleet of four author agents; the numbers and the reasoning are in fleet-kit's
+  `docs/control-plane.md`, *Hook cost*. Measure again before going past about a dozen agents.
+- `SubagentStart` confirmed (2026-11-14): `first_context.py --project git --subagent` shows a
+  `hook SubagentStart` part of 1,232 characters (about 308 tokens) in a `cc-practices:code-reviewer`
+  sub-agent's transcript from 2026-11-13. The hook stays unmatched: 308 tokens is small next to a review, and
+  a reviewer that knows the rules can hold a change to them.
