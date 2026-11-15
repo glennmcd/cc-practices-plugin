@@ -135,10 +135,10 @@ allow rule like `Bash(rtk:*)`: it would let any rewritten command through withou
 `/review-pr` runs the `code-reviewer` agent in adversarial mode on a PR and posts its verdict as a comment
 that names the PR's head commit. It first checks that the PR is not a draft and that CI has finished and
 passed, gives the reviewer only the diff and the issue's *Done when* list, and refuses to post if a push
-landed in the meantime. The comment is read by fleet-kit's `reviewer-verdict` check (`docs/verdict.md` there),
+landed in the meantime. The comment is read by fleetwright's `reviewer-verdict` check (`docs/verdict.md` there),
 which a ruleset can require, so a PR cannot merge on an old approval. The helper is
 `skills/review-pr/post_verdict.py`; it needs the `gh` CLI signed in as an account listed in the check's
-`verdict.reviewers`. With `FLEET_REVIEWER_LOGIN` set, as on fleet-kit's review slots, it refuses to post unless
+`verdict.reviewers`. With `FLEETWRIGHT_REVIEWER_LOGIN` set, as on fleetwright's review slots, it refuses to post unless
 `gh` is signed in as that account. Unattended, the skill ends with a one-line reason instead of asking, and never
 edits, pushes or merges.
 
@@ -160,7 +160,7 @@ processes inherit it. When it is set:
   and anything that needs the owner becomes a handoff comment on the issue or PR, in the form of
   `templates/handoff.md`, after which the agent ends.
 - `git commit` is allowed whatever `allowAgentCommits` says. Without this, a sub-agent that
-  fleet-kit's context ceiling tells to commit and hand off could do neither.
+  fleetwright's context ceiling tells to commit and hand off could do neither.
 
 ## Develop
 

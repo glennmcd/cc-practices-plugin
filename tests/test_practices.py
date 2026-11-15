@@ -420,7 +420,7 @@ def test_is_unattended_is_false_when_unset() -> None:
 
 
 def test_guard_allows_commit_when_unattended(tmp_path: Path) -> None:
-    # A sub-agent past fleet-kit's context ceiling may run only git/gh and is told to commit.
+    # A sub-agent past fleetwright's context ceiling may run only git/gh and is told to commit.
     payload = {"agent_id": "a1", **bash("git add -A && git commit -m 'feat: x' && git push")}
     write_config(tmp_path, {"allowAgentCommits": False})
     assert run("guard-commit", payload, tmp_path, env=UNATTENDED)[0] == 0

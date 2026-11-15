@@ -1,9 +1,9 @@
 # Plan
 
-What is left for cc-practices from the fleet-kit roadmap (Marquardt's two articles, rebuilt round by
+What is left for cc-practices from the fleetwright roadmap (Marquardt's two articles, rebuilt round by
 round). The split: cc-practices holds the general practices (rules, skills, reviewer, commit guard,
-templates); fleet-kit holds what only a fleet needs (token hooks, measurement, CI gates, control plane).
-Its plan is `fleet-kit/docs/plans/PLAN.md`.
+templates); fleetwright holds what only a fleet needs (token hooks, measurement, CI gates, control plane).
+Its plan is `fleetwright/docs/plans/PLAN.md`.
 
 Done so far: unattended mode (`CC_PRACTICES_UNATTENDED`, 0.2.0), command compaction left to rtk's own
 hook (0.3.0), topic files with a byte cap (0.4.0), and the core rules for sub-agents through a
@@ -47,18 +47,21 @@ Extend the existing agent rather than add a second one.
 
 - An adversarial mode that looks for reasons to reject.
 - A verdict (approve or request changes) tied to the head commit SHA, in a form a CI check can read.
-  The merge check itself belongs to fleet-kit.
+  The merge check itself belongs to fleetwright.
 
 Done in 0.7.0: `code-reviewer` has an adversarial mode that ends in a `VERDICT:` line, and the `review-pr`
 skill runs it and posts the verdict through `skills/review-pr/post_verdict.py`, which refuses a PR that is red,
-a draft or whose head moved. The marker is pinned by a test here and in fleet-kit. The reviewer now has its own
-account (`g26work`); on fleet-kit's review slots `post_verdict.py` refuses to post as any other account
-(`FLEET_REVIEWER_LOGIN`), and the skill has an unattended path.
+a draft or whose head moved. The marker is pinned by a test here and in fleetwright. The reviewer now has its own
+account (`g26work`); on fleetwright's review slots `post_verdict.py` refuses to post as any other account
+(`FLEETWRIGHT_REVIEWER_LOGIN`), and the skill has an unattended path.
 
-0.8.1: `post_verdict.py` refuses on a fleet author slot (`FLEET_ROLE=author`), and the skill's description no
+0.8.1: `post_verdict.py` refuses on a fleet author slot (`FLEETWRIGHT_ROLE=author`), and the skill's description no
 longer says to run it "when a PR needs its verdict". On 2026-11-15 two author agents saw `reviewer-verdict`
 red on their own pull requests, ran the skill and posted approvals as the author's account. The merge check
 ignored them, since only the reviewer's account counts.
+
+0.9.0: the kit is now `fleetwright`. `post_verdict.py` writes the `fleetwright-verdict` marker, which fleetwright
+v0.5.0 reads instead of `fleet-verdict`, and reads `FLEETWRIGHT_REVIEWER_LOGIN` and `FLEETWRIGHT_ROLE`.
 
 ## 4. Prose rules to gates: done
 
@@ -84,8 +87,8 @@ Done in 0.7.0: `templates/github/ISSUE_TEMPLATE/agent-ready.md`, installed as th
 ## Also open
 
 - Hook cost: measured on the fleet machine (2026-11-14). `practices.py guard-commit` takes 79 ms under
-  `uv run --script`, and fleet-kit's four hooks take 70 ms together when started in parallel. No dispatcher
-  for a fleet of four author agents; the numbers and the reasoning are in fleet-kit's
+  `uv run --script`, and fleetwright's four hooks take 70 ms together when started in parallel. No dispatcher
+  for a fleet of four author agents; the numbers and the reasoning are in fleetwright's
   `docs/control-plane.md`, *Hook cost*. Measure again before going past about a dozen agents.
 - `SubagentStart` confirmed (2026-11-14): `first_context.py --project git --subagent` shows a
   `hook SubagentStart` part of 1,232 characters (about 308 tokens) in a `cc-practices:code-reviewer`

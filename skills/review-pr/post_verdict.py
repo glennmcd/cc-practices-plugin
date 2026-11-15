@@ -2,7 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
-"""The reviewer's side of fleet-kit's verdict-at-head check: readiness, and posting the verdict.
+"""The reviewer's side of fleetwright's verdict-at-head check: readiness, and posting the verdict.
 
     post_verdict.py ready --repo owner/name --pr 7
     post_verdict.py post --repo owner/name --pr 7 --sha <head sha> --verdict approve --body-file f
@@ -12,18 +12,19 @@ other than `reviewer-verdict` has finished and passed, because a review of a red
 what CI already said.
 
 `post` refuses unless the PR's head is still the commit that was reviewed, then comments with the
-marker that fleet-kit's `gates/verdict.py` reads (fleet-kit docs/verdict.md). The marker is the
-contract: a test here and one in fleet-kit pin its literal form. Uses the `gh` CLI, signed in as an
-account listed in `verdict.reviewers`. Standard library only.
+marker that fleetwright's `gates/verdict.py` reads (fleetwright docs/verdict.md). The marker is
+the contract: a test here and one in fleetwright pin its literal form. Uses the `gh` CLI, signed
+in as an account listed in `verdict.reviewers`. Standard library only.
 
-When `FLEET_REVIEWER_LOGIN` is set, as on a fleet's review slots, `post` first checks that `gh` is
-signed in as that account and refuses otherwise. A review slot also holds the authors' token, so a
-mix-up over which variable carries which token would otherwise post the verdict as the author.
+When `FLEETWRIGHT_REVIEWER_LOGIN` is set, as on a fleet's review slots, `post` first checks that
+`gh` is signed in as that account and refuses otherwise. A review slot also holds the authors'
+token, so a mix-up over which variable carries which token would otherwise post the verdict as
+the author.
 
-When `FLEET_ROLE` is `author`, as on a fleet's author slots, both commands refuse before any call:
-`ready` answers not ok and `post` posts nothing. An author never reviews its own pull request; the
-review slot does. Two author agents once saw `reviewer-verdict` red on their own pull requests, ran
-this skill and approved themselves.
+When `FLEETWRIGHT_ROLE` is `author`, as on a fleet's author slots, both commands refuse before any
+call: `ready` answers not ok and `post` posts nothing. An author never reviews its own pull
+request; the review slot does. Two author agents once saw `reviewer-verdict` red on their own pull
+requests, ran this skill and approved themselves.
 """
 
 from __future__ import annotations
@@ -44,7 +45,7 @@ FULL_SHA = re.compile(r"[0-9a-f]{40}")
 GOOD = {"success", "neutral", "skipped"}
 
 AUTHOR_SLOT = (
-    "this is a fleet author slot (FLEET_ROLE=author): an author never reviews its own pull "
+    "this is a fleet author slot (FLEETWRIGHT_ROLE=author): an author never reviews its own pull "
     "request. Leave `reviewer-verdict` red; the review slot posts the verdict"
 )
 
@@ -64,13 +65,13 @@ def format_marker(sha: str, verdict: str) -> str:
         raise ValueError(f"sha must be a full lowercase 40-character commit hash, got {sha!r}")
     if verdict not in VERDICTS:
         raise ValueError(f"verdict must be one of {VERDICTS}, got {verdict!r}")
-    return f"<!-- fleet-verdict v1 {json.dumps({'sha': sha, 'verdict': verdict})} -->"
+    return f"<!-- fleetwright-verdict v1 {json.dumps({'sha': sha, 'verdict': verdict})} -->"
 
 
 def compose_comment(sha: str, verdict: str, body: str) -> str:
     """The marker, then the review. The review text can never carry a second marker."""
-    if re.search(r"fleet-?verdict", body, re.IGNORECASE):
-        raise ValueError("the review text must not contain a fleet-verdict marker")
+    if re.search(r"fleet(?:wright)?-?verdict", body, re.IGNORECASE):
+        raise ValueError("the review text must not contain a fleetwright-verdict marker")
     return f"{format_marker(sha, verdict)}\n\n{body.strip()}\n"
 
 
@@ -151,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--verdict", required=True, choices=VERDICTS)
             p.add_argument("--body-file", required=True)
     args = parser.parse_args(argv)
-    if os.environ.get("FLEET_ROLE") == "author":
+    if os.environ.get("FLEETWRIGHT_ROLE") == "author":
         if args.command == "ready":
             print(json.dumps({"ok": False, "head_sha": "", "reason": AUTHOR_SLOT}))
             return 1
@@ -170,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.verdict,
                 Path(args.body_file).read_text("utf-8"),
                 gh_api,
-                expect_login=os.environ.get("FLEET_REVIEWER_LOGIN") or None,
+                expect_login=os.environ.get("FLEETWRIGHT_REVIEWER_LOGIN") or None,
             )
         )
     except (HeadMoved, WrongAccount, ValueError) as error:

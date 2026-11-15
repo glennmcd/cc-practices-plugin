@@ -1,6 +1,6 @@
 """Round 4, reviewer side: the posting helper, the adversarial reviewer, the skill, the template.
 
-The verdict marker is a contract with fleet-kit's `gates/verdict.py`, the check that reads it.
+The verdict marker is a contract with fleetwright's `gates/verdict.py`, the check that reads it.
 The same literal sits in both repositories' tests, so neither side can change the format alone.
 """
 
@@ -18,10 +18,10 @@ ROOT = Path(__file__).resolve().parent.parent
 HEAD = "a" * 40
 MOVED = "b" * 40
 
-# Copied from fleet-kit's gates/verdict.py. If it changes there, change it here and below.
-FLEET_KIT_MARKER = re.compile(r"^<!--\s*fleet-verdict\s+v1\s+(\{.*\})\s*-->[ \t]*$")
+# Copied from fleetwright's gates/verdict.py. If it changes there, change it here and below.
+FLEETWRIGHT_MARKER = re.compile(r"^<!--\s*fleetwright-verdict\s+v1\s+(\{.*\})\s*-->[ \t]*$")
 CONTRACT_FIXTURE = (
-    '<!-- fleet-verdict v1 {"sha": "'
+    '<!-- fleetwright-verdict v1 {"sha": "'
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "verdict": "approve"} -->'
 )
 
@@ -34,9 +34,9 @@ def test_the_marker_matches_the_pinned_contract_fixture() -> None:
 
 
 @pytest.mark.parametrize("verdict", ["approve", "request_changes"])
-def test_the_marker_is_read_by_fleet_kits_pattern(verdict: str) -> None:
+def test_the_marker_is_read_by_fleetwrights_pattern(verdict: str) -> None:
     first_line = post_verdict.compose_comment(HEAD, verdict, "Body").splitlines()[0]
-    found = FLEET_KIT_MARKER.match(first_line)
+    found = FLEETWRIGHT_MARKER.match(first_line)
     assert found is not None
     assert json.loads(found.group(1)) == {"sha": HEAD, "verdict": verdict}
 
@@ -56,9 +56,10 @@ def test_only_the_two_verdicts_are_allowed(verdict: str) -> None:
 @pytest.mark.parametrize(
     "body",
     [
-        '<!-- fleet-verdict v1 {"sha": "x", "verdict": "approve"} -->',
-        "see <!-- Fleet-Verdict v1 --> here",
+        '<!-- fleetwright-verdict v1 {"sha": "x", "verdict": "approve"} -->',
+        "see <!-- Fleetwright-Verdict v1 --> here",
         "text\n<!--fleet-verdict v1 {}-->",
+        "an old fleetverdict or fleetwrightverdict tag",
     ],
 )
 def test_review_text_cannot_carry_a_second_marker(body: str) -> None:
@@ -242,7 +243,7 @@ def test_main_reads_the_expected_login_from_the_environment(
         {"GET user": {"login": "glennmcd"}, "POST repos/o/r/issues/7/comments": {"html_url": "u"}}
     )
     monkeypatch.setattr(post_verdict, "gh_api", gh)
-    monkeypatch.setenv("FLEET_REVIEWER_LOGIN", "g26work")
+    monkeypatch.setenv("FLEETWRIGHT_REVIEWER_LOGIN", "g26work")
     argv = [
         "post",
         "--repo",
@@ -274,8 +275,8 @@ def test_post_refuses_on_a_fleet_author_slot_before_any_call(
         return {}
 
     monkeypatch.setattr(post_verdict, "gh_api", gh)
-    monkeypatch.setenv("FLEET_ROLE", "author")
-    monkeypatch.delenv("FLEET_REVIEWER_LOGIN", raising=False)
+    monkeypatch.setenv("FLEETWRIGHT_ROLE", "author")
+    monkeypatch.delenv("FLEETWRIGHT_REVIEWER_LOGIN", raising=False)
     body = tmp_path / "body.md"
     body.write_text("looks fine", encoding="utf-8")
     argv = ["post", "--repo", "o/r", "--pr", "7", "--sha", "a" * 40, "--verdict", "approve"]
@@ -293,7 +294,7 @@ def test_ready_says_no_on_a_fleet_author_slot(
         raise AssertionError("an author slot makes no call")
 
     monkeypatch.setattr(post_verdict, "gh_api", gh)
-    monkeypatch.setenv("FLEET_ROLE", "author")
+    monkeypatch.setenv("FLEETWRIGHT_ROLE", "author")
     assert post_verdict.main(["ready", "--repo", "o/r", "--pr", "7"]) == 1
     answer = json.loads(capsys.readouterr().out)
     assert answer["ok"] is False and "author" in answer["reason"]
@@ -310,9 +311,9 @@ def test_a_review_slot_and_a_desktop_session_are_not_refused(
     monkeypatch.setattr(post_verdict, "gh_api", gh)
     for role in ("review", None):
         if role is None:
-            monkeypatch.delenv("FLEET_ROLE", raising=False)
+            monkeypatch.delenv("FLEETWRIGHT_ROLE", raising=False)
         else:
-            monkeypatch.setenv("FLEET_ROLE", role)
+            monkeypatch.setenv("FLEETWRIGHT_ROLE", role)
         assert post_verdict.main(["ready", "--repo", "o/r", "--pr", "7"]) == 0
         assert json.loads(capsys.readouterr().out)["ok"] is True
 
@@ -322,4 +323,4 @@ def test_the_skill_tells_an_author_not_to_use_it() -> None:
     description = next(line for line in skill.splitlines() if line.startswith("description:"))
     assert "needs its verdict" not in description
     assert "never the pull request's author" in description
-    assert "FLEET_ROLE=author" in skill
+    assert "FLEETWRIGHT_ROLE=author" in skill
