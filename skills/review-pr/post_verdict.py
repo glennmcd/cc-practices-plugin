@@ -19,6 +19,11 @@ account listed in `verdict.reviewers`. Standard library only.
 When `FLEET_REVIEWER_LOGIN` is set, as on a fleet's review slots, `post` first checks that `gh` is
 signed in as that account and refuses otherwise. A review slot also holds the authors' token, so a
 mix-up over which variable carries which token would otherwise post the verdict as the author.
+
+When `FLEET_ROLE` is `author`, as on a fleet's author slots, both commands refuse before any call:
+`ready` answers not ok and `post` posts nothing. An author never reviews its own pull request; the
+review slot does. Two author agents once saw `reviewer-verdict` red on their own pull requests, ran
+this skill and approved themselves.
 """
 
 from __future__ import annotations
@@ -37,6 +42,11 @@ CHECK_NAME = "reviewer-verdict"
 VERDICTS = ("approve", "request_changes")
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
 GOOD = {"success", "neutral", "skipped"}
+
+AUTHOR_SLOT = (
+    "this is a fleet author slot (FLEET_ROLE=author): an author never reviews its own pull "
+    "request. Leave `reviewer-verdict` red; the review slot posts the verdict"
+)
 
 Gh = Callable[..., Any]
 
@@ -141,6 +151,12 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--verdict", required=True, choices=VERDICTS)
             p.add_argument("--body-file", required=True)
     args = parser.parse_args(argv)
+    if os.environ.get("FLEET_ROLE") == "author":
+        if args.command == "ready":
+            print(json.dumps({"ok": False, "head_sha": "", "reason": AUTHOR_SLOT}))
+            return 1
+        print(f"not posted: {AUTHOR_SLOT}", file=sys.stderr)
+        return 2
     if args.command == "ready":
         result = ready(args.repo, args.pr, gh_api)
         print(json.dumps(result))

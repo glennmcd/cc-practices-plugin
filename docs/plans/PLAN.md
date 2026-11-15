@@ -55,6 +55,11 @@ a draft or whose head moved. The marker is pinned by a test here and in fleet-ki
 account (`g26work`); on fleet-kit's review slots `post_verdict.py` refuses to post as any other account
 (`FLEET_REVIEWER_LOGIN`), and the skill has an unattended path.
 
+0.8.1: `post_verdict.py` refuses on a fleet author slot (`FLEET_ROLE=author`), and the skill's description no
+longer says to run it "when a PR needs its verdict". On 2026-11-15 two author agents saw `reviewer-verdict`
+red on their own pull requests, ran the skill and posted approvals as the author's account. The merge check
+ignored them, since only the reviewer's account counts.
+
 ## 4. Prose rules to gates: done
 
 Most rules are prose, which is followed most of the time; a hook, test or CI gate is followed every

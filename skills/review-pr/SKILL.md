@@ -1,11 +1,13 @@
 ---
 name: review-pr
-description: Review a pull request adversarially with an independent agent and post a verdict tied to the PR's head commit, which fleet-kit's reviewer-verdict check reads. Use when asked to review a PR, or when a PR needs its verdict before merge.
+description: Review a pull request adversarially with an independent agent and post a verdict tied to the PR's head commit, which fleet-kit's reviewer-verdict check reads. Use when asked to review a PR. For the reviewer, never the pull request's author: a red reviewer-verdict check on your own PR is not a reason to run it.
 ---
 
 # Review a pull request
 
 The verdict is about one commit. A push after it makes it stale, so the review is bound to the head SHA from the first step to the last.
+
+An author never reviews its own pull request. If you wrote the PR in this session, stop: tell the user it needs a review from the reviewer's account, and leave `reviewer-verdict` red. On a fleet author slot (`FLEET_ROLE=author`) the helper refuses both steps below.
 
 1. Find the PR (the user gives a number, or use `gh pr view --json number,headRefOid`) and the repository as `owner/name`.
 2. Check it is ready: `uv run --script "${CLAUDE_PLUGIN_ROOT}/skills/review-pr/post_verdict.py" ready --repo <owner/name> --pr <n>`. If `ok` is false, stop and tell the user why. A review of a red or running PR only repeats what CI says, so the author fixes CI first. Keep `head_sha` from the answer: it is the commit you review.

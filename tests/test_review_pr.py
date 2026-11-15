@@ -259,3 +259,67 @@ def test_main_reads_the_expected_login_from_the_environment(
     assert post_verdict.main(argv) == 2
     assert gh.posted == []
     assert "glennmcd" in capsys.readouterr().err
+
+
+# --- an author never reviews its own pull request ------------------------------------------------
+
+
+def test_post_refuses_on_a_fleet_author_slot_before_any_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def gh(method: str, path: str, fields: dict[str, str] | None = None) -> dict[str, str]:
+        calls.append((method, path))
+        return {}
+
+    monkeypatch.setattr(post_verdict, "gh_api", gh)
+    monkeypatch.setenv("FLEET_ROLE", "author")
+    monkeypatch.delenv("FLEET_REVIEWER_LOGIN", raising=False)
+    body = tmp_path / "body.md"
+    body.write_text("looks fine", encoding="utf-8")
+    argv = ["post", "--repo", "o/r", "--pr", "7", "--sha", "a" * 40, "--verdict", "approve"]
+    assert post_verdict.main([*argv, "--body-file", str(body)]) == 2
+    assert calls == []
+    err = capsys.readouterr().err
+    assert "not posted" in err and "author" in err and "review slot" in err
+
+
+def test_ready_says_no_on_a_fleet_author_slot(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The skill stops at this step, before it spends a review on a verdict that cannot be posted.
+    def gh(method: str, path: str, fields: dict[str, str] | None = None) -> dict[str, str]:
+        raise AssertionError("an author slot makes no call")
+
+    monkeypatch.setattr(post_verdict, "gh_api", gh)
+    monkeypatch.setenv("FLEET_ROLE", "author")
+    assert post_verdict.main(["ready", "--repo", "o/r", "--pr", "7"]) == 1
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["ok"] is False and "author" in answer["reason"]
+
+
+def test_a_review_slot_and_a_desktop_session_are_not_refused(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def gh(method: str, path: str, fields: dict[str, str] | None = None) -> dict[str, object]:
+        if "check-runs" in path:
+            return {"check_runs": []}
+        return {"head": {"sha": "a" * 40}, "draft": False}
+
+    monkeypatch.setattr(post_verdict, "gh_api", gh)
+    for role in ("review", None):
+        if role is None:
+            monkeypatch.delenv("FLEET_ROLE", raising=False)
+        else:
+            monkeypatch.setenv("FLEET_ROLE", role)
+        assert post_verdict.main(["ready", "--repo", "o/r", "--pr", "7"]) == 0
+        assert json.loads(capsys.readouterr().out)["ok"] is True
+
+
+def test_the_skill_tells_an_author_not_to_use_it() -> None:
+    skill = (ROOT / "skills" / "review-pr" / "SKILL.md").read_text(encoding="utf-8")
+    description = next(line for line in skill.splitlines() if line.startswith("description:"))
+    assert "needs its verdict" not in description
+    assert "never the pull request's author" in description
+    assert "FLEET_ROLE=author" in skill
