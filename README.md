@@ -25,7 +25,7 @@ used locally and installed from a directory marketplace, not published.
 Requires `uv` on `PATH`: the hooks run `hooks/practices.py` with `uv run --script` (standard library only).
 
 ```bash
-claude plugin marketplace add C:/Users/glenn/Documents/git/cc-practices-plugin
+claude plugin marketplace add glennmcd/cc-practices-plugin
 claude plugin install cc-practices@cc-practices --scope local
 ```
 
